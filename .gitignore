@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+.installed.cfg
+MANIFEST
+
+# Environments
+.env
+.venv
+env/
+venv/
+
+# Testing & coverage
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+htmlcov/
+coverage.xml
+
+# Type checkers & linters
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+pyrightconfig.json
+
+# Packaging tools
+.pdm.toml
+poetry.toml
+__pypackages__/
+
+# Jupyter
+.ipynb_checkpoints
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+Session.vim
+Sessionx.vim
+.netrwhist
+*~
+tags
+[._]*.un~

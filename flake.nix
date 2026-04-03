@@ -1,0 +1,31 @@
+{
+  description = "Claude Code local display panel with LaTeX rendering";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  };
+
+  outputs = { self, nixpkgs }:
+    let
+      system = "x86_64-linux";
+      pkgs = import nixpkgs { inherit system; };
+
+      pythonEnv = pkgs.python312.withPackages (ps: with ps; [
+        fastapi
+        uvicorn
+        httpx
+        mcp
+        websockets
+      ]);
+    in {
+      devShells.${system}.default = pkgs.mkShell {
+        packages = [ pythonEnv pkgs.git ];
+
+        shellHook = ''
+          echo "claude-display dev environment"
+          echo "  uvicorn server.main:app --port 5050 --reload"
+          echo "  python server/mcp_server.py"
+        '';
+      };
+    };
+}
