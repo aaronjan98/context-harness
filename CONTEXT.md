@@ -1,67 +1,52 @@
-# claude-display
+# agent-display
 
-A local display panel for Claude Code conversations. Claude Code pushes every
-message to a FastAPI server via an MCP tool. The browser renders the full
-conversation as a chat thread with proper LaTeX and syntax-highlighted code.
+## Project
+Single-user local conversation workspace for AI agents and chats.
 
-## Status
-- [ ] v1: Read-only display panel (in progress)
+## Purpose
+`agent-display` is a file-first app for reading, writing, and reshaping AI
+conversations across multiple models and tools.
 
-## Architecture
+The core product is not a Claude-specific viewer. The core product is a
+canonical conversation store that:
 
-```
-Claude Code (CLI)
-    └── MCP tool: push_message(role, content)
-            └── POST → FastAPI server (localhost:8080)
-                    └── WebSocket broadcast → Browser
-```
+- keeps the conversation as the source of truth
+- lets different agents continue the same thread
+- supports clean Markdown export/import
+- is designed for later branching, forking, graph view, and math-native input
 
-## File Structure
+## Current state
+- Planning and spec stage
+- No implementation yet beyond the original scaffold
+- Product direction has shifted away from the old Claude-only display panel
 
-```
-claude-display/
-├── CONTEXT.md
-├── specs/
-│   └── v1-display-panel.md
-├── memory/
-│   ├── MEMORY.md
-│   └── YYYY-MM-DD.md
-├── notes/
-├── server/
-│   ├── main.py         — FastAPI app
-│   └── mcp_server.py   — MCP server
-└── static/
-    ├── index.html
-    ├── app.js
-    └── style.css
-```
+## Working model
+- One `conversation/` folder is the durable unit
+- A conversation may contain mixed coding, math, and general discussion
+- The app is the canonical writer of conversation data
+- Other agents/tools may read exported thread context
+- Branching and graph features are future phases, not v1
+
+## Current priorities
+- Lock the product definition
+- Define the storage model and import/export behavior
+- Break the work into explicit phases with mini-goals in `project-memory/`
+- Keep `MEMORY.md` current so future agents know which planning docs are active
+
+## Key files
+- `MEMORY.md` — current project state and active planning pointers
+- `specs/product-spec.md` — product-level spec across phases
+- `project-memory/` — durable mini-goals, roadmap, and design decisions
+- `memory/YYYY-MM-DD.md` — session logs
 
 ## Environment
-
-Managed via Nix flake. Enter the dev shell before running anything:
+Managed with Nix flake:
 
 ```bash
 nix develop
 ```
 
-Packages provided: `python312`, `fastapi`, `uvicorn`, `httpx`, `mcp`, `websockets`
-
-## Running
-
-```bash
-uvicorn server.main:app --port 5050 --reload
-python server/mcp_server.py
-```
-
-Browser: http://localhost:5050
-
-## MCP Configuration (one-time setup)
-
-See `notes/mcp-setup.md` for:
-- How to register the MCP server in `~/.claude/settings.json`
-- What to add to `~/.claude/CLAUDE.md` to auto-push every message
-
-## Working Instructions
-- Spec lives in specs/v1-display-panel.md — consult before making changes
-- Log each session in memory/YYYY-MM-DD.md
-- Durable decisions (tech choices, architecture changes) go in memory/MEMORY.md
+## Notes
+- The repo directory and product are both named `agent-display`
+- Do not revive Claude-specific MCP assumptions unless the spec explicitly calls
+  for an adapter

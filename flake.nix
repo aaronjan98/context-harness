@@ -1,5 +1,5 @@
 {
-  description = "Claude Code local display panel with LaTeX rendering";
+  description = "agent-display development environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -22,7 +22,7 @@
         packages = [ pythonEnv pkgs.git ];
 
         shellHook = ''
-          echo "claude-display dev environment"
+          echo "agent-display dev environment"
           echo "  uvicorn server.main:app --port 5050 --reload"
           echo "  python server/mcp_server.py"
         '';
