@@ -38,3 +38,26 @@
 ## Roadmap
 - Graph view comes after forking work and after Vim/math-editor work
 - Forking/branching is a future phase, not a v1 requirement
+
+## Frontend architecture
+- Framework: React 18 + Vite + TypeScript (not Next.js — SSR has no value for
+  a local single-user SPA with a FastAPI backend)
+- Routing: TanStack Router v1 with code-based route tree and Zod search param
+  validation
+- State: TanStack Query for server state, Zustand for ephemeral UI state, URL
+  for navigation state — never duplicate state across layers
+- Layout: react-resizable-panels, three-column push layout (sidebar | thread |
+  graph panel), all edges drag-resizable, side panels collapsible
+- Graph panel: opened via `?panel=graph` search param on conversation route,
+  not a separate route — push behavior, not overlay
+- API types: openapi-typescript generates src/api/schema.ts from FastAPI's
+  /openapi.json — never hand-edit schema.ts, regenerate on backend changes
+- Editor: stable EditorProps interface; Phase 1 = SimpleEditor (textarea,
+  Ctrl+Enter), Phase 2 = RichEditor (CodeMirror + vim + KaTeX); swap is one
+  line in features/editor/index.ts
+- KaTeX display rendering wired in Phase 1 (message bubbles); input-side LaTeX
+  preview deferred to Phase 2
+- Graph transforms.ts written in Phase 1 as a pure function (Message[] →
+  nodes + edges); React Flow canvas filled in Phase 4
+- Real-time transport stub (realtime.ts) wired in providers now, implemented
+  in Phase 5 with SSE/WebSocket → queryClient.invalidateQueries

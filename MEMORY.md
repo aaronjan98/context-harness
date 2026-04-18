@@ -23,16 +23,19 @@ Completed:
 - canonical storage model
 - backend conversation create/load/append/thread/export flow
 - initial backend unit and API integration tests
+- frontend architecture plan (all checkpoints agreed with user)
+- frontend scaffold: config files, all feature stubs, API layer, store, shared
+  components (see project-memory/frontend-architecture.md)
 
 Current focus:
-- backend robustness
+- frontend Phase 1 implementation (chat UI, input, conversation list)
 - remaining Phase 1 backend feature: Markdown import
-- keeping agent-facing docs accurate while the user builds the UI separately
+- backend robustness to support the live frontend
 
 Explicit boundary:
-- do not work on the UI unless the user asks
-- backend changes should preserve future support for branching, graph view, and
+- backend changes must preserve future support for branching, graph view, and
   multi-agent workflows
+- frontend feature slice discipline: features must not import from each other
 
 ## Working assumptions
 - Single-user local app
@@ -42,11 +45,18 @@ Explicit boundary:
 - Agents share context by reading exports, then sending new content back through
   the app
 
-## Next backend step
-Implement Markdown import with light speaker-pattern matching and keep the
-existing storage/API behavior tested as the backend grows.
+## Next steps
+- Frontend: implement Phase 1 features (ConversationSidebar, ThreadView,
+  SimpleEditor, MessageContent with KaTeX, API integration)
+- Backend: Markdown import with light speaker-pattern matching
+
+## Active documents
+- `project-memory/frontend-architecture.md` — canonical frontend reference for
+  any agent; covers stack, routing, layout, state layers, API client, editor
+  abstraction, graph readiness, and future considerations
 
 ## Session logs
 - `memory/2026-04-03.md` — original Claude-only project inception
 - `memory/2026-04-17.md` — product reset toward `agent-display`
 - `memory/2026-04-18.md` — backend foundation, testing, and current checkpoint
+- `memory/2026-04-18b.md` — frontend architecture planning and scaffold

@@ -18,8 +18,9 @@ canonical conversation store that:
 ## Current state
 - Product definition is locked in at a high level
 - Backend conversation foundation is implemented and tested
-- Frontend/UI work is intentionally separate; the user is building that layer
-- Product direction has shifted away from the old Claude-only display panel
+- Frontend scaffold is in place: React + Vite + TypeScript, all feature stubs
+  created, architecture fully documented in project-memory/frontend-architecture.md
+- Phase 1 frontend implementation is the active focus
 
 ## Working model
 - One conversation folder is the durable unit
@@ -43,6 +44,7 @@ canonical conversation store that:
 - `project-memory/phase-1-checklist.md` — exact implementation checkpoint
 - `project-memory/storage-model.md` — canonical conversation file model
 - `project-memory/decisions.md` — durable accepted product decisions
+- `project-memory/frontend-architecture.md` — canonical frontend reference
 - `memory/YYYY-MM-DD.md` — session logs
 
 ## Backend status
