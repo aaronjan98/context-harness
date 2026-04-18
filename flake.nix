@@ -15,6 +15,7 @@
         uvicorn
         httpx
         mcp
+        pytest
         pyyaml
         websockets
       ]);
