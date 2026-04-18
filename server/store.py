@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 
 @dataclass(slots=True)
@@ -17,6 +20,17 @@ class StorePaths:
     exports: Path
     history: Path
     conversation_file: Path
+
+
+@dataclass(slots=True)
+class ConversationMetadata:
+    """Conversation-level metadata loaded from disk."""
+
+    id: str
+    title: str
+    created_at: str
+    root_message_id: str | None
+    active_message_id: str | None
 
 
 class ConversationStore:
@@ -65,6 +79,44 @@ class ConversationStore:
             "active_message_id:\n"
         )
 
+    def parse_yaml_mapping(self, text: str) -> dict[str, Any]:
+        """Parse a YAML mapping from disk into a Python dictionary."""
+        loaded = yaml.safe_load(text) or {}
+        if not isinstance(loaded, dict):
+            raise ValueError("Expected conversation metadata to be a YAML mapping")
+        return loaded
+
+    def load_conversation_metadata(self, conversation_id: str) -> ConversationMetadata:
+        """Load conversation-level metadata from disk."""
+        paths = self.initialize_conversation(conversation_id)
+        values = self.parse_yaml_mapping(
+            paths.conversation_file.read_text(encoding="utf-8")
+        )
+        return ConversationMetadata(
+            id=str(values.get("id") or conversation_id),
+            title=str(values.get("title") or conversation_id),
+            created_at=str(values.get("created_at") or ""),
+            root_message_id=self._optional_string(values.get("root_message_id")),
+            active_message_id=self._optional_string(values.get("active_message_id")),
+        )
+
+    def conversation_summary(self, conversation_id: str) -> dict[str, Any]:
+        """Return a JSON-friendly view of one conversation."""
+        metadata = self.load_conversation_metadata(conversation_id)
+        paths = self.paths_for(conversation_id)
+        return {
+            "id": metadata.id,
+            "title": metadata.title,
+            "created_at": metadata.created_at,
+            "root_message_id": metadata.root_message_id,
+            "active_message_id": metadata.active_message_id,
+            "paths": {
+                "root": str(paths.root),
+                "conversation_file": str(paths.conversation_file),
+                "current_export": str(paths.exports / "current.md"),
+            },
+        }
+
     def initialize_conversation(self, conversation_id: str) -> StorePaths:
         """Ensure layout exists and seed conversation metadata if missing."""
         paths = self.ensure_layout(conversation_id)
@@ -77,3 +129,8 @@ class ConversationStore:
         if not current_export.exists():
             current_export.write_text("", encoding="utf-8")
         return paths
+
+    @staticmethod
+    def _optional_string(value: str | None) -> str | None:
+        """Normalize empty metadata values to None."""
+        return value if value else None

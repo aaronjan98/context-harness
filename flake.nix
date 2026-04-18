@@ -15,6 +15,7 @@
         uvicorn
         httpx
         mcp
+        pyyaml
         websockets
       ]);
     in {
@@ -24,7 +25,7 @@
         shellHook = ''
           echo "agent-display dev environment"
           echo "  uvicorn server.main:app --port 5050 --reload"
-          echo "  python server/mcp_server.py"
+          echo "  open the API docs at http://127.0.0.1:5050/docs"
         '';
       };
     };

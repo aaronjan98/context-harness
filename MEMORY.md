@@ -10,6 +10,8 @@ Claude-specific display-panel plan has been retired in favor of a broader
   phase roadmap
 - `project-memory/phase-roadmap.md` — concise map of what each phase proves
 - `project-memory/phase-1-mvp.md` — current near-term scope
+- `project-memory/phase-1-checklist.md` — concrete implementation checklist for
+  the current phase
 - `project-memory/storage-model.md` — canonical conversation structure and file
   layout
 - `project-memory/decisions.md` — durable accepted product decisions
