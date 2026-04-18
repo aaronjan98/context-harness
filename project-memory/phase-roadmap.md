@@ -10,6 +10,11 @@ Success means:
 - append replies from one agent path
 - persist canonical files and update Markdown export
 
+Current status:
+- backend foundation mostly complete
+- UI work is separate
+- Markdown import is the main remaining backend feature for this phase
+
 ## Phase 2 — Math-native input
 Prove the app is materially better for math-heavy work.
 

@@ -5,6 +5,19 @@ Build the first usable slice of `agent-display`: a local browser UI that can
 hold a conversation, accept input, persist it canonically, and keep a readable
 Markdown export in sync.
 
+## Current implementation status
+Backend progress:
+- create/open conversation flow is implemented
+- canonical message append/read/export flow is implemented
+- backend tests cover the current storage and API foundation
+
+Frontend progress:
+- intentionally not implemented by the backend agent at this stage
+- the user is building the UI layer separately
+
+Immediate backend gap:
+- Markdown import remains the main unfinished Phase 1 backend feature
+
 ## In scope
 - create/open a conversation
 - render the active thread in a chat UI
