@@ -557,6 +557,8 @@ shortcuts that the server always corrects.
 
 ### Stub now, fill in later
 - [ ] `RichEditor.tsx` — Phase 2 (CodeMirror + vim + KaTeX input)
+  - Snippet system should load from `~/Repositories/self-hosted/zettelkasten/Documents/shortcuts.json`
+  - See `project-memory/snippet-strategy.md` for the full cross-editor plan before implementing
 - [ ] `GraphPanel.tsx` / `GraphCanvas.tsx` — Phase 4 (React Flow)
 - [ ] `api/realtime.ts` — Phase 5 (SSE/WebSocket)
 
