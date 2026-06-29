@@ -56,6 +56,8 @@ local capabilities.
 Success means:
 - multiple agents can continue the same conversation
 - exports are reliable enough for agent handoff
+- a CLI bridge exists so Claude Code, Codex, scripts, and web-chatbot workflows
+  can export context and append responses without native integration
 - adapters can submit replies without breaking the canonical store
 - model-requested tool actions can be reviewed, executed by the local backend,
   and exported back into the thread

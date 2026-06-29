@@ -25,6 +25,22 @@
 - External agents/tools should not directly write canonical message files
 - The default context sent to an agent is the entire active thread
 - Multi-agent replies remain in one visible linear thread by default
+- Agent integration should begin with a CLI bridge, not MCP or a full custom
+  runtime
+- The CLI bridge should expose stable commands for export, append, import, and
+  open workflows so Claude Code, Codex, scripts, and web chatbots can
+  participate without owning conversation state
+- MCP and runtime adapters remain later conveniences layered over the same
+  backend/conversation store
+
+## Agent runtime inspiration
+- `~/Repositories/experiment/claw-code-parity` may be used as inspiration for
+  permission models, tool specs, session runtimes, mock harnesses, and CLI
+  architecture
+- Experimental repos are not durable project truth and should not be merged into
+  Context Forge by default
+- Context Forge should remain the conversation/context source of truth; agent
+  runtimes should plug into it instead of replacing it
 
 ## Local capabilities
 - Local file, directory, skill, import/export, and future shell/tool access is

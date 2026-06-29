@@ -127,6 +127,11 @@ External tools and agents may read conversation exports freely.
 Agents share a conversation by reading exported context and returning new
 messages through the app, not by directly mutating canonical files.
 
+The first durable integration path should be a small CLI bridge rather than MCP
+or a full custom agent runtime. Any agent that can read files and run commands
+should be able to export context from Context Forge and append a response back
+through commands such as `context-forge export` and `context-forge append`.
+
 ## Import and export
 
 ### Markdown export
@@ -175,6 +180,7 @@ canonical conversation model. More advanced export handling is deferred.
 ### Phase 5 — Agent and web-chatbot bridge
 - multiple agent adapters
 - smoother handoff and continuation between tools
+- CLI bridge commands for export/append/import before deeper runtime adapters
 - controlled tool-action workflow where model output can request local actions
   that the backend mediates and the user approves
 
