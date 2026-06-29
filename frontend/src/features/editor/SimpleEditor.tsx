@@ -2,7 +2,7 @@
  * SimpleEditor — Phase 1 editor implementation.
  *
  * A plain textarea that satisfies the EditorProps contract.
- * Ctrl+Enter submits. Tab inserts two spaces (prevents focus loss).
+ * Enter submits. Shift+Enter inserts a newline. Tab inserts two spaces.
  *
  * This component is replaced in Phase 2 by RichEditor (CodeMirror + vim).
  * The swap is one line in features/editor/index.ts — this file is not touched.
@@ -14,8 +14,8 @@ import type { EditorProps } from './types'
 
 export function SimpleEditor({ value, onChange, onSubmit, disabled }: EditorProps) {
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Ctrl+Enter — submit
-    if (e.key === 'Enter' && e.ctrlKey) {
+    // Enter submits; Shift+Enter keeps multiline editing available.
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       if (!disabled) onSubmit()
       return
@@ -43,7 +43,7 @@ export function SimpleEditor({ value, onChange, onSubmit, disabled }: EditorProp
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={handleKeyDown}
       disabled={disabled}
-      placeholder="Message... (Ctrl+Enter to send)"
+      placeholder="Message... (Enter to send, Shift+Enter for newline)"
       rows={4}
       className="cf-editor"
     />

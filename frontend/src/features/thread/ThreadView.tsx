@@ -18,7 +18,6 @@
 
 import { useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { Link } from '@tanstack/react-router'
 import { conversationRoute } from '@/app/router'
@@ -34,8 +33,10 @@ export function ThreadView() {
   const { panel } = conversationRoute.useSearch()
   const queryClient = useQueryClient()
 
-  const [draft, setDraft] = useState('')
   const focusedMessageId = useUIStore((s) => s.focusedMessageId)
+  const draft = useUIStore((s) => s.draftsByConversationId[id] ?? '')
+  const setDraft = useUIStore((s) => s.setDraft)
+  const clearDraft = useUIStore((s) => s.clearDraft)
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   // Fetch messages for this conversation
@@ -50,7 +51,7 @@ export function ThreadView() {
     mutationFn: (content: string) =>
       appendMessage(id, { role: 'user', content }),
     onSuccess: () => {
-      setDraft('')
+      clearDraft(id)
       queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
     },
   })
@@ -120,7 +121,7 @@ export function ThreadView() {
         <div className="cf-editor-tray">
           <Editor
             value={draft}
-            onChange={setDraft}
+            onChange={(value) => setDraft(id, value)}
             onSubmit={handleSubmit}
             disabled={isSending}
           />

@@ -6,15 +6,12 @@
  *
  * Data: fetched via TanStack Query, cache key ['conversations'].
  * Navigation: uses TanStack Router Link (typed, validated at compile time).
- *
- * Phase 1 implementation — fills in real API calls once schema.ts is generated.
  */
 
 import { useEffect, useState } from 'react'
-import { Link } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
-import { useUIStore } from '@/store/ui'
-import { fetchConversations } from '@/api/conversations'
+import { Link, useNavigate } from '@tanstack/react-router'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { createConversation, fetchConversations } from '@/api/conversations'
 import type { ConversationSummary } from '@/api/conversations'
 
 type Theme = 'light' | 'dark'
@@ -29,12 +26,34 @@ function getInitialTheme(): Theme {
 }
 
 export function ConversationSidebar() {
-  const setModalOpen = useUIStore((s) => s.setNewConversationModalOpen)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const { data: conversations, isLoading, isError } = useQuery({
     queryKey: ['conversations'],
     queryFn: fetchConversations,
+  })
+
+  const {
+    mutate: startConversation,
+    isPending: isCreating,
+    isError: createFailed,
+  } = useMutation({
+    mutationFn: () => {
+      const conversationId = `thread-${Date.now().toString(36)}`
+      return createConversation({
+        conversation_id: conversationId,
+        title: 'New conversation',
+      })
+    },
+    onSuccess: async (conversation) => {
+      await queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      await navigate({
+        to: '/conversations/$id',
+        params: { id: conversation.id },
+      })
+    },
   })
 
   useEffect(() => {
@@ -59,7 +78,8 @@ export function ConversationSidebar() {
           </button>
           <button
             type="button"
-            onClick={() => setModalOpen(true)}
+            onClick={() => startConversation()}
+            disabled={isCreating}
             title="New conversation"
             className="cf-icon-button"
           >
@@ -76,6 +96,11 @@ export function ConversationSidebar() {
         {isError && (
           <div className="cf-sidebar-status cf-sidebar-error">
             Failed to load conversations.
+          </div>
+        )}
+        {createFailed && (
+          <div className="cf-sidebar-status cf-sidebar-error">
+            Failed to create conversation.
           </div>
         )}
         {conversations &&

@@ -21,7 +21,7 @@ frontend. Read it before touching any frontend file.
 | TypeScript | Language | End-to-end type safety across router, API, and store |
 | TanStack Router v1 | Routing | Fully typed route params and search params via Zod |
 | TanStack Query v5 | Server state | Async state, caching, loading/error, optimistic updates |
-| Zustand | UI state | Lightweight client-only state (modals, focused message) |
+| Zustand | UI state | Lightweight client-only state (focused message, per-thread drafts) |
 | react-resizable-panels | Layout | Drag handles, push behavior, collapse, size persistence |
 | openapi-fetch | HTTP client | Typed fetch wrapper driven by generated schema |
 | openapi-typescript | Type generation | Generates src/api/schema.ts from FastAPI's /openapi.json |
@@ -60,7 +60,7 @@ frontend/
     │   ├── editor/             ← input abstraction (Phase 1: simple, Phase 2: vim)
     │   │   ├── index.ts        ← re-exports active implementation (the swap seam)
     │   │   ├── types.ts        ← EditorProps interface (the stable contract)
-    │   │   ├── SimpleEditor.tsx ← Phase 1: textarea + Ctrl+Enter submit
+    │   │   ├── SimpleEditor.tsx ← Phase 1: textarea + Enter submit
     │   │   └── RichEditor.tsx  ← Phase 2: CodeMirror + vim + KaTeX (stub)
     │   └── graph/              ← graph panel, node/edge transforms
     │       ├── index.ts
@@ -72,7 +72,7 @@ frontend/
     │   ├── conversations.ts    ← typed query/mutation functions per resource
     │   └── realtime.ts         ← Phase 5 stub: SSE/WebSocket → cache invalidation
     ├── store/
-    │   └── ui.ts               ← Zustand: focusedMessageId, modal flags
+    │   └── ui.ts               ← Zustand: focusedMessageId, per-thread drafts
     └── shared/
         └── components/
             └── MessageContent.tsx  ← markdown + KaTeX renderer for message bodies
@@ -87,7 +87,7 @@ Each directory under `features/` is a self-contained enclosure. The rule is:
 **Features may not import from each other.**
 
 Cross-feature communication happens through:
-- The Zustand `ui` store (e.g. `focusedMessageId`)
+- The Zustand `ui` store (e.g. `focusedMessageId`, unsent per-thread drafts)
 - The URL / TanStack Router search params (e.g. `?panel=graph`)
 - `app/`-level wiring (e.g. the shell passing props down)
 
@@ -236,8 +236,8 @@ There are five distinct state owners. Never duplicate state across layers.
 | Backend / disk | Canonical conversation data | FastAPI + file system |
 | TanStack Query cache | Server state mirror, invalidated on writes or push | TanStack Query |
 | TanStack Router / URL | Navigation state (active conversation, panel visibility) | TanStack Router |
-| Zustand `ui` store | Ephemeral UI state (focused message ID, modal flags) | Zustand |
-| React component state | Truly transient state (editor text before submit) | useState |
+| Zustand `ui` store | Ephemeral UI state (focused message ID, unsent per-thread drafts) | Zustand |
+| React component state | Truly transient state scoped to one mounted component | useState |
 
 ### Optimistic updates
 
@@ -400,9 +400,9 @@ Nothing in `ThreadView` changes.
 
 ### Submit keybinding
 
-`Ctrl+Enter` submits in both `SimpleEditor` and `RichEditor`. In the vim
-editor (Phase 2), this binding works in both insert and normal mode so the
-behavior is consistent regardless of vim mode.
+`Enter` submits in `SimpleEditor`; `Shift+Enter` inserts a newline. In the vim
+editor (Phase 2), the final keybinding should preserve fast submit while still
+allowing multiline math input.
 
 ### LaTeX: two separate concerns
 
@@ -566,7 +566,7 @@ shortcuts that the server always corrects.
 ## Phase 1 implementation checklist
 
 ### Build now (Phase 1)
-- [ ] `SimpleEditor.tsx` — textarea, `Ctrl+Enter` submit
+- [ ] `SimpleEditor.tsx` — textarea, `Enter` submit and `Shift+Enter` newline
 - [ ] `ConversationSidebar.tsx` — list conversations, create new
 - [ ] `ConversationsPage.tsx` — empty state
 - [ ] `ThreadView.tsx` — display messages, inner panel group, mount Editor
