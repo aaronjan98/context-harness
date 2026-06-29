@@ -80,8 +80,8 @@ Implemented:
 Current focus:
 
 - Verify the browser UI against the real backend runtime.
-- Move the default conversation store out of `~/Repositories` and into a
-  selected `~/Documents/...` location.
+- Keep the default conversation store under
+  `~/Documents/context-harness/conversations`.
 - Add basic Markdown import.
 
 ## Phase Roadmap

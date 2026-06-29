@@ -52,13 +52,13 @@ Why it exists:
 By default, conversations are stored in:
 
 ```text
-~/Repositories/conversations/
+~/Documents/context-harness/conversations/
 ```
 
 Each conversation gets its own folder:
 
 ```text
-~/Repositories/conversations/<conversation-id>/
+~/Documents/context-harness/conversations/<conversation-id>/
 ```
 
 Inside that folder, the store currently expects:
@@ -95,7 +95,7 @@ Why this matters:
 Sets the base directory for all conversations.
 
 Default:
-- `~/Repositories/conversations`
+- `~/Documents/context-harness/conversations`
 
 This is intentionally outside the app repo because the conversations are meant
 to outlive the implementation details of this project.
@@ -105,7 +105,7 @@ Returns the folder for one conversation ID.
 
 Example:
 - `agent-ui-planning` becomes
-  `~/Repositories/conversations/agent-ui-planning`
+  `~/Documents/context-harness/conversations/agent-ui-planning`
 
 ### `paths_for(conversation_id)`
 Builds and returns the `StorePaths` object for that conversation.

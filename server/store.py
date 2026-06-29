@@ -51,7 +51,9 @@ class ConversationStore:
     """Owns canonical conversation folder layout on disk."""
 
     def __init__(self, base_dir: Path | None = None) -> None:
-        self.base_dir = base_dir or Path.home() / "Repositories" / "conversations"
+        self.base_dir = (
+            base_dir or Path.home() / "Documents" / "context-harness" / "conversations"
+        )
 
     def conversation_dir(self, conversation_id: str) -> Path:
         """Return the folder path for a conversation id."""

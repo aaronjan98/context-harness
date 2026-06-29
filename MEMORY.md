@@ -34,7 +34,8 @@ Current focus:
 - verify the Phase 1 browser UI shell and message submission flow against the
   real backend runtime
 - remaining Phase 1 backend feature: Markdown import
-- move canonical conversation storage to a selected `~/Documents/...` path
+- keep canonical conversation storage under
+  `~/Documents/context-harness/conversations`
 - backend robustness to support the live frontend
 
 Explicit boundary:
@@ -48,8 +49,8 @@ Explicit boundary:
 - Single-user local app
 - Canonical conversation data is file-first and app-written
 - Messages live as individual Markdown files with frontmatter
-- Canonical conversation files should live under a selected `~/Documents/...`
-  path, not under `~/Repositories`, once the store default is moved
+- Canonical conversation files live under
+  `~/Documents/context-harness/conversations`, not under `~/Repositories`
 - Conversations can mix coding, math, and general discussion
 - Agents share context by reading exports, then sending new content back through
   the app
@@ -59,8 +60,8 @@ Explicit boundary:
 ## Next steps
 - Implementation checkpoint: run the live browser/backend smoke test for
   conversation list, create/open, thread load, and message submission
-- Implementation checkpoint: move the default conversation store from
-  `~/Repositories/conversations` to a selected `~/Documents/...` location
+- Implementation checkpoint: verify the default conversation store at
+  `~/Documents/context-harness/conversations` with the live browser/backend flow
 - Backend: Markdown import with light speaker-pattern matching after the API
   contract is stable
 

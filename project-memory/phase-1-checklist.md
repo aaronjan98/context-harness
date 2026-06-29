@@ -6,7 +6,8 @@ checklist under `project-memory/phase-1-mvp.md`.
 
 ## Checklist
 - [x] Scaffold backend package and storage boundary
-- [x] Set the default conversation store location to `~/Repositories/conversations`
+- [x] Set the default conversation store location to
+      `~/Documents/context-harness/conversations`
 - [x] Add initial backend scaffold documentation
 - [x] Add conversation create/load API skeleton
 - [x] Add proper YAML dependency in `flake.nix`

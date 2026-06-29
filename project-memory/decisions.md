@@ -19,9 +19,9 @@
 - Canonical messages are individual Markdown files with YAML frontmatter
 - The app reconstructs thread structure from message metadata
 - Exports are public read surfaces, not the source of truth
-- Canonical conversation data should move out of `~/Repositories`; that
-  directory is reserved for git-tracked projects. The exact `~/Documents/...`
-  location still needs to be selected before changing the store default.
+- Canonical conversation data lives under
+  `~/Documents/context-harness/conversations`; `~/Repositories` is reserved
+  for git-tracked projects.
 
 ## Agent participation
 - External agents/tools may read exported conversation context

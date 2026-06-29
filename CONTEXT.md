@@ -34,8 +34,8 @@ canonical conversation store that:
 - Keep backend behavior robust while preserving future branch/graph expansion
 - Verify the Phase 1 browser UI against the real backend runtime
 - Finish the remaining Phase 1 backend work, especially Markdown import
-- Move the default canonical conversation store out of `~/Repositories` and
-  into a selected `~/Documents/...` location
+- Keep the default canonical conversation store under
+  `~/Documents/context-harness/conversations`
 - Keep `MEMORY.md` and `project-memory/` current so future agents know the
   active phase and exact checkpoint
 - Do not touch the UI unless the user explicitly asks; the user is building it
@@ -55,7 +55,8 @@ canonical conversation store that:
 ## Backend status
 Implemented and tested:
 - FastAPI app factory with injectable conversation store
-- Canonical conversation folder creation in `~/Repositories/conversations`
+- Canonical conversation folder creation in
+  `~/Documents/context-harness/conversations`
 - Conversation metadata persistence
 - Canonical message append/write/read path
 - Active-thread reconstruction from message parent links

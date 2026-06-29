@@ -7,6 +7,12 @@ import yaml
 from server.store import ConversationStore
 
 
+def test_default_store_location_lives_under_documents() -> None:
+    store = ConversationStore()
+
+    assert store.base_dir == Path.home() / "Documents" / "context-harness" / "conversations"
+
+
 def test_initialize_conversation_creates_expected_layout(store: ConversationStore) -> None:
     conversation_id = "unit-layout"
 
