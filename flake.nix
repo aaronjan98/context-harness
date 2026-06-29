@@ -1,5 +1,5 @@
 {
-  description = "agent-display development environment";
+  description = "Context Forge development environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -24,7 +24,7 @@
         packages = [ pythonEnv pkgs.git ];
 
         shellHook = ''
-          echo "agent-display dev environment"
+          echo "Context Forge dev environment"
           echo "  uvicorn server.main:app --port 5050 --reload"
           echo "  open the API docs at http://127.0.0.1:5050/docs"
         '';

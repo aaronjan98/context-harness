@@ -29,7 +29,8 @@ Completed:
   components (see project-memory/frontend-architecture.md)
 
 Current focus:
-- align the Phase 1 frontend/backend API contract
+- finish the Phase 1 frontend/backend API contract after the initial `/api`
+  namespace alignment
 - frontend Phase 1 implementation (chat UI, input, conversation list) after the
   API contract is stable
 - remaining Phase 1 backend feature: Markdown import
@@ -46,6 +47,8 @@ Explicit boundary:
 - Single-user local app
 - Canonical conversation data is file-first and app-written
 - Messages live as individual Markdown files with frontmatter
+- Canonical conversation files should live under a selected `~/Documents/...`
+  path, not under `~/Repositories`, once the store default is moved
 - Conversations can mix coding, math, and general discussion
 - Agents share context by reading exports, then sending new content back through
   the app

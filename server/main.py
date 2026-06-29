@@ -1,4 +1,4 @@
-"""FastAPI application entrypoint for agent-display."""
+"""FastAPI application entrypoint for Context Forge."""
 
 from pydantic import BaseModel, Field
 from fastapi import FastAPI
@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from server.store import ConversationStore
 
 
-app = FastAPI(title="agent-display")
+app = FastAPI(title="Context Forge")
 store = ConversationStore()
 
 
@@ -41,7 +41,7 @@ def serialize_message(message: object) -> dict[str, object]:
 
 def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
     """Create the FastAPI app with an injectable conversation store."""
-    app = FastAPI(title="agent-display")
+    app = FastAPI(title="Context Forge")
     store = conversation_store or ConversationStore()
 
     @app.get("/health")

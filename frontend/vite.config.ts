@@ -22,7 +22,7 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
+        // Do not strip /api: FastAPI routes are namespaced under /api.
       },
     },
   },

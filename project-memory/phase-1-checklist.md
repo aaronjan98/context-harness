@@ -16,6 +16,7 @@ checklist under `project-memory/phase-1-mvp.md`.
 - [x] Regenerate `exports/current.md` after writes
 - [x] Add initial backend unit and API integration tests
 - [x] Add frontend architecture plan and React/Vite scaffold
+- [x] Align frontend API calls with the backend `/api` namespace
 - [ ] Align frontend/backend API contract
 - [ ] Regenerate frontend OpenAPI types from the backend
 - [ ] Add/update backend tests for the Phase 1 API contract
@@ -29,9 +30,10 @@ The backend can now append canonical message nodes, read the active thread, and
 regenerate the current Markdown export. Initial unit and API integration tests
 now cover this behavior.
 
-The frontend scaffold exists, but its API assumptions drifted from the current
-backend routes and payload shapes. The next checkpoint is to align the Phase 1
-API contract before adding more UI behavior.
+The frontend scaffold exists. Its API layer now uses the backend `/api`
+namespace, but the full Phase 1 API contract is not complete yet. The next
+checkpoint is to add the missing backend/frontend contract pieces before adding
+more UI behavior.
 
 Phase 1 should keep local capability work out of scope beyond preserving the
 backend as the only authority that will eventually mediate configured files,

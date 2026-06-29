@@ -17,7 +17,7 @@ import { api } from './client'
 // ── Conversations list ────────────────────────────────────────────────────────
 
 export async function fetchConversations() {
-  const { data, error } = await api.GET('/conversations' as never)
+  const { data, error } = await api.GET('/api/conversations' as never)
   if (error) throw new Error(String(error))
   return data
 }
@@ -25,8 +25,8 @@ export async function fetchConversations() {
 // ── Single conversation ───────────────────────────────────────────────────────
 
 export async function fetchConversation(id: string) {
-  const { data, error } = await api.GET('/conversations/{id}' as never, {
-    params: { path: { id } },
+  const { data, error } = await api.GET('/api/conversations/{conversation_id}' as never, {
+    params: { path: { conversation_id: id } },
   } as never)
   if (error) throw new Error(String(error))
   return data
@@ -36,11 +36,11 @@ export async function fetchConversation(id: string) {
 
 export async function fetchMessages(conversationId: string) {
   const { data, error } = await api.GET(
-    '/conversations/{id}/messages' as never,
-    { params: { path: { id: conversationId } } } as never
+    '/api/conversations/{conversation_id}/thread' as never,
+    { params: { path: { conversation_id: conversationId } } } as never
   )
   if (error) throw new Error(String(error))
-  return data
+  return (data as { messages?: unknown[] } | undefined)?.messages ?? []
 }
 
 export async function appendMessage(
@@ -48,10 +48,13 @@ export async function appendMessage(
   body: { role: string; content: string; agent?: string }
 ) {
   const { data, error } = await api.POST(
-    '/conversations/{id}/messages' as never,
+    '/api/conversations/{conversation_id}/messages' as never,
     {
-      params: { path: { id: conversationId } },
-      body,
+      params: { path: { conversation_id: conversationId } },
+      body: {
+        ...body,
+        agent: body.agent ?? (body.role === 'user' ? 'human' : 'unknown'),
+      },
     } as never
   )
   if (error) throw new Error(String(error))
@@ -60,8 +63,8 @@ export async function appendMessage(
 
 // ── Create conversation ───────────────────────────────────────────────────────
 
-export async function createConversation(body: { title?: string }) {
-  const { data, error } = await api.POST('/conversations' as never, {
+export async function createConversation(body: { conversation_id: string }) {
+  const { data, error } = await api.POST('/api/conversations' as never, {
     body,
   } as never)
   if (error) throw new Error(String(error))
@@ -73,8 +76,8 @@ export async function createConversation(body: { title?: string }) {
 // See project-memory/frontend-architecture.md § Future features for details.
 
 export async function renameConversation(id: string, title: string) {
-  const { data, error } = await api.PATCH('/conversations/{id}' as never, {
-    params: { path: { id } },
+  const { data, error } = await api.PATCH('/api/conversations/{conversation_id}' as never, {
+    params: { path: { conversation_id: id } },
     body: { title },
   } as never)
   if (error) throw new Error(String(error))

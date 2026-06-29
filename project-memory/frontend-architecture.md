@@ -1,4 +1,4 @@
-# Frontend Architecture — agent-display
+# Frontend Architecture — Context Forge
 
 ## Overview
 
@@ -312,7 +312,7 @@ export const api = createClient<paths>({ baseUrl: 'http://localhost:8000' })
 
 // api/conversations.ts — typed functions consumed by TanStack Query hooks
 export async function fetchConversations() {
-  const { data, error } = await api.GET('/conversations')
+  const { data, error } = await api.GET('/api/conversations')
   if (error) throw error
   return data
 }
@@ -321,8 +321,8 @@ export async function appendMessage(
   conversationId: string,
   body: { role: string; content: string }
 ) {
-  const { data, error } = await api.POST('/conversations/{id}/messages', {
-    params: { path: { id: conversationId } },
+  const { data, error } = await api.POST('/api/conversations/{conversation_id}/messages', {
+    params: { path: { conversation_id: conversationId } },
     body,
   })
   if (error) throw error

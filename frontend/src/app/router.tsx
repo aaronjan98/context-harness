@@ -1,5 +1,5 @@
 /**
- * Route tree for agent-display.
+ * Route tree for Context Forge.
  *
  * All routes are defined here using TanStack Router code-based routing.
  * Route objects are exported so component files can call their typed hooks

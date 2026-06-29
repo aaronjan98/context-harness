@@ -1,11 +1,12 @@
-# agent-display
+# Context Forge
 
 ## Project
-Single-user local conversation workspace for AI agents and chats.
+Single-user local conversation/context harness for AI agents and chats.
 
 ## Purpose
-`agent-display` is a file-first app for reading, writing, and reshaping AI
-conversations across multiple models and tools.
+Context Forge is a file-first app for reading, writing, and reshaping AI
+conversations across multiple models and tools. The repository is named
+`context-harness`; Context Forge is the product name.
 
 The core product is not a Claude-specific viewer. The core product is a
 canonical conversation store that:
@@ -31,7 +32,11 @@ canonical conversation store that:
 
 ## Current priorities
 - Keep backend behavior robust while preserving future branch/graph expansion
+- Finish the Phase 1 API contract after the `/api` namespace alignment:
+  conversation listing, generated OpenAPI types, and frontend verification
 - Finish the remaining Phase 1 backend work, especially Markdown import
+- Move the default canonical conversation store out of `~/Repositories` and
+  into a selected `~/Documents/...` location
 - Keep `MEMORY.md` and `project-memory/` current so future agents know the
   active phase and exact checkpoint
 - Do not touch the UI unless the user explicitly asks; the user is building it
@@ -45,7 +50,7 @@ canonical conversation store that:
 - `project-memory/storage-model.md` — canonical conversation file model
 - `project-memory/decisions.md` — durable accepted product decisions
 - `project-memory/frontend-architecture.md` — canonical frontend reference
-- `project-memory/snippet-strategy.md` — cross-editor snippet system plan (Neovim, Obsidian, VSCodium, agent-display)
+- `project-memory/snippet-strategy.md` — cross-editor snippet system plan (Neovim, Obsidian, VSCodium, Context Forge)
 - `memory/YYYY-MM-DD.md` — session logs
 
 ## Backend status
@@ -59,6 +64,7 @@ Implemented and tested:
 - Backend unit tests and API integration tests
 
 Still pending on the backend for Phase 1:
+- Full frontend/backend API contract completion after namespace alignment
 - Markdown import with light speaker-pattern matching
 - Any additional robustness improvements needed to support the user-built UI
 
@@ -70,7 +76,8 @@ nix develop
 ```
 
 ## Notes
-- The repo directory and product are both named `agent-display`
+- Product name: Context Forge
+- Repo/category name: `context-harness`
 - Do not revive Claude-specific MCP assumptions unless the spec explicitly calls
   for an adapter
 - The backend is the current focus area for agents unless the user says otherwise

@@ -1,4 +1,4 @@
-"""File-first conversation storage primitives for agent-display."""
+"""File-first conversation storage primitives for Context Forge."""
 
 from __future__ import annotations
 

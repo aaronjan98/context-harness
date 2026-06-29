@@ -1,7 +1,7 @@
 # Phase 1 Mini-Goal
 
 ## Goal
-Build the first usable slice of `agent-display`: a local browser UI that can
+Build the first usable slice of Context Forge: a local browser UI that can
 hold a conversation, accept input, persist it canonically, and keep a readable
 Markdown export in sync.
 

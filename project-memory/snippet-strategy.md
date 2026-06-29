@@ -22,7 +22,7 @@ No editor should maintain its own independent snippet list — derive from this 
 | Neovim | LuaSnip Lua adapter (`~/.config/nvim/lua/snippets/markdown.lua`) | Broken; needs full redo |
 | Obsidian | latex-suite reads shortcuts.json natively | Working |
 | VSCodium | Convert shortcuts.json → VS Code snippet JSON | Not yet done |
-| agent-display | CodeMirror 6 `@codemirror/autocomplete` snippet system in `RichEditor.tsx` | Phase 2 |
+| Context Forge | CodeMirror 6 `@codemirror/autocomplete` snippet system in `RichEditor.tsx` | Phase 2 |
 
 ## Options flag mapping (from shortcuts.json)
 
@@ -39,7 +39,7 @@ Each snippet entry has an `options` string that must be translated per target:
 | `mA` | Math-mode autosnippet |
 | `rmA` | Regex math autosnippet |
 
-## agent-display specifics (Phase 2)
+## Context Forge specifics (Phase 2)
 
 When implementing `RichEditor.tsx` with CodeMirror 6:
 
