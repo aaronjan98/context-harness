@@ -43,19 +43,9 @@ export function SimpleEditor({ value, onChange, onSubmit, disabled }: EditorProp
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={handleKeyDown}
       disabled={disabled}
-      placeholder="Message… (Ctrl+Enter to send)"
+      placeholder="Message... (Ctrl+Enter to send)"
       rows={4}
-      style={{
-        width: '100%',
-        resize: 'vertical',
-        fontFamily: 'monospace',
-        fontSize: '14px',
-        padding: '8px',
-        boxSizing: 'border-box',
-        border: '1px solid #d1d5db',
-        borderRadius: '6px',
-        outline: 'none',
-      }}
+      className="cf-editor"
     />
   )
 }

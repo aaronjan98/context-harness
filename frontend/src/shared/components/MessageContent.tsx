@@ -27,11 +27,13 @@ interface MessageContentProps {
 
 export function MessageContent({ content }: MessageContentProps) {
   return (
-    <ReactMarkdown
-      remarkPlugins={[remarkMath]}
-      rehypePlugins={[rehypeKatex]}
-    >
-      {content}
-    </ReactMarkdown>
+    <div className="cf-message-content">
+      <ReactMarkdown
+        remarkPlugins={[remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
   )
 }

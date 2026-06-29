@@ -1,6 +1,14 @@
 """Integration tests for the FastAPI conversation API."""
 
 
+def test_docs_route_uses_context_forge_theme(client) -> None:
+    response = client.get("/docs")
+
+    assert response.status_code == 200
+    assert "Context Forge - API Docs" in response.text
+    assert "--cf-bg" in response.text
+
+
 def test_create_conversation_returns_metadata(client) -> None:
     response = client.post("/api/conversations", json={"conversation_id": "api-create"})
 

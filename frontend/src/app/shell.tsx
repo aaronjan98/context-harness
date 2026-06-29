@@ -19,7 +19,7 @@ export function Shell() {
     <PanelGroup
       direction="horizontal"
       autoSaveId="shell-layout"
-      style={{ height: '100vh' }}
+      className="cf-shell"
     >
       <Panel
         id="sidebar"
@@ -31,7 +31,10 @@ export function Shell() {
         <ConversationSidebar />
       </Panel>
 
-      <PanelResizeHandle style={{ width: 4, background: '#e5e7eb', cursor: 'col-resize' }} />
+      <PanelResizeHandle
+        className="cf-resize-handle"
+        style={{ width: '1px', minWidth: '1px', flex: '0 0 1px', alignSelf: 'stretch' }}
+      />
 
       <Panel id="main" minSize={30} style={{ overflow: 'hidden' }}>
         <Outlet />

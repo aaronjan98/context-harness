@@ -7,16 +7,7 @@
 
 export function ConversationsPage() {
   return (
-    <div
-      style={{
-        height: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#9ca3af',
-        fontSize: '14px',
-      }}
-    >
+    <div className="cf-empty-state">
       Select a conversation or create a new one.
     </div>
   )

@@ -17,18 +17,8 @@
 
 export function GraphPanel() {
   return (
-    <div
-      style={{
-        height: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#9ca3af',
-        fontSize: '14px',
-        fontFamily: 'monospace',
-      }}
-    >
-      Graph view — Phase 4
+    <div className="cf-graph-panel">
+      Graph view - Phase 4
     </div>
   )
 }

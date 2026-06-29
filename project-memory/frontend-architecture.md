@@ -44,7 +44,7 @@ frontend/
 ├── tsconfig.json
 ├── tsconfig.node.json          ← TypeScript config for vite.config.ts
 └── src/
-    ├── main.tsx                ← mounts React, imports global CSS (katex)
+    ├── main.tsx                ← mounts React, imports global CSS (katex, theme)
     ├── app/
     │   ├── router.tsx          ← route tree, exports router + route objects
     │   ├── shell.tsx           ← root layout: sidebar + <Outlet />
@@ -304,11 +304,21 @@ site that broke due to the backend change.
 
 ### Call pattern
 
+During local browser development, the frontend uses same-origin `/api/...`
+requests and Vite proxies them to FastAPI at `http://localhost:8000`. This
+keeps the browser flow CORS-free while preserving the backend `/api` namespace.
+
+If an external runtime needs to bypass the Vite dev server, set
+`VITE_API_BASE_URL`. Otherwise leave it unset.
+
 ```ts
 // api/client.ts — configured once
 import createClient from 'openapi-fetch'
 import type { paths } from './schema'
-export const api = createClient<paths>({ baseUrl: 'http://localhost:8000' })
+
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
+
+export const api = createClient<paths>({ baseUrl: apiBaseUrl })
 
 // api/conversations.ts — typed functions consumed by TanStack Query hooks
 export async function fetchConversations() {
@@ -333,9 +343,21 @@ export async function appendMessage(
 ### TanStack Query keys
 
 ```ts
-['conversations']          → list of all conversations
-['conversations', id]      → single conversation + its active thread messages
+['conversations']                → list of all conversations
+['conversations', id, 'messages'] → active thread messages
 ```
+
+---
+
+## Theme boundary
+
+The frontend theme should stay intentionally simple during Phase 1. The app has
+a light/dark toggle in the conversation sidebar. Theme changes should mostly be
+CSS variable swaps plus restrained highlight/glow states.
+
+Do not treat dark mode as a redesign. Preserve the current plain layout,
+generic fonts, spacing, radii, and component structure unless the user asks for
+a broader UI pass.
 
 ---
 

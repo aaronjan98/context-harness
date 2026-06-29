@@ -27,6 +27,7 @@ import { GraphPanel } from '@/features/graph'
 import { MessageContent } from '@/shared/components/MessageContent'
 import { useUIStore } from '@/store/ui'
 import { fetchMessages, appendMessage } from '@/api/conversations'
+import type { Message } from '@/api/conversations'
 
 export function ThreadView() {
   const { id } = conversationRoute.useParams()
@@ -77,39 +78,37 @@ export function ThreadView() {
       style={{ height: '100%' }}
     >
       {/* Thread panel */}
-      <Panel id="thread" minSize={30} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <Panel id="thread" minSize={30} className="cf-thread-panel">
         {/* Graph panel toggle */}
-        <div style={{ padding: '8px 16px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end' }}>
+        <div className="cf-thread-toolbar">
           <Link
             to="/conversations/$id"
             params={{ id }}
             search={panel === 'graph' ? {} : { panel: 'graph' }}
-            style={{ fontSize: '12px', color: '#6b7280', textDecoration: 'none' }}
+            className="cf-link-pill"
           >
             {panel === 'graph' ? 'Close graph' : 'View graph'}
           </Link>
         </div>
 
         {/* Message list */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
-          {isLoading && <div style={{ color: '#9ca3af' }}>Loading…</div>}
-          {isError && <div style={{ color: '#ef4444' }}>Failed to load messages.</div>}
+        <div className="cf-thread-scroll">
+          {isLoading && <div className="cf-sidebar-status">Loading...</div>}
+          {isError && (
+            <div className="cf-sidebar-status cf-sidebar-error">
+              Failed to load messages.
+            </div>
+          )}
           {messages &&
-            // TODO: replace `any` with generated Message type from schema.ts
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (messages as any[]).map((msg: any) => (
+            messages.map((msg: Message) => (
               <div
                 key={msg.id}
                 ref={(el) => { messageRefs.current[msg.id] = el }}
-                style={{
-                  marginBottom: '16px',
-                  padding: '12px',
-                  borderRadius: '8px',
-                  background: msg.role === 'user' ? '#f3f4f6' : '#ffffff',
-                  border: '1px solid #e5e7eb',
-                }}
+                className={`cf-message ${
+                  msg.role === 'user' ? 'cf-message-user' : 'cf-message-assistant'
+                }`}
               >
-                <div style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '4px', fontFamily: 'monospace' }}>
+                <div className="cf-message-meta">
                   {msg.role} · {msg.agent ?? 'unknown'} · {msg.timestamp}
                 </div>
                 <MessageContent content={msg.content} />
@@ -118,7 +117,7 @@ export function ThreadView() {
         </div>
 
         {/* Editor */}
-        <div style={{ padding: '12px 16px', borderTop: '1px solid #e5e7eb' }}>
+        <div className="cf-editor-tray">
           <Editor
             value={draft}
             onChange={setDraft}
@@ -132,7 +131,7 @@ export function ThreadView() {
       {panel === 'graph' && (
         <>
           <PanelResizeHandle
-            style={{ width: 4, background: '#e5e7eb', cursor: 'col-resize' }}
+            className="cf-resize-handle"
           />
           <Panel
             id="graph"

@@ -2,12 +2,10 @@
 
 from pydantic import BaseModel, Field
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 
+from server.docs import get_context_forge_docs_html
 from server.store import ConversationStore
-
-
-app = FastAPI(title="Context Forge")
-store = ConversationStore()
 
 
 class CreateConversationRequest(BaseModel):
@@ -87,8 +85,16 @@ def serialize_message(message: object) -> MessageResponse:
 
 def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
     """Create the FastAPI app with an injectable conversation store."""
-    app = FastAPI(title="Context Forge")
+    app = FastAPI(title="Context Forge", docs_url=None)
     store = conversation_store or ConversationStore()
+
+    @app.get("/docs", include_in_schema=False)
+    async def docs() -> HTMLResponse:
+        """Render dark-themed Swagger UI documentation."""
+        return get_context_forge_docs_html(
+            openapi_url=app.openapi_url or "/openapi.json",
+            title=app.title,
+        )
 
     @app.get("/health")
     async def health() -> dict[str, str]:

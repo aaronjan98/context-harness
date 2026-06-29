@@ -10,78 +10,82 @@
  * Phase 1 implementation — fills in real API calls once schema.ts is generated.
  */
 
+import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useUIStore } from '@/store/ui'
 import { fetchConversations } from '@/api/conversations'
+import type { ConversationSummary } from '@/api/conversations'
+
+type Theme = 'light' | 'dark'
+
+const THEME_STORAGE_KEY = 'context-forge-theme'
+
+function getInitialTheme(): Theme {
+  const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
+  if (savedTheme === 'light' || savedTheme === 'dark') return savedTheme
+
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
 
 export function ConversationSidebar() {
   const setModalOpen = useUIStore((s) => s.setNewConversationModalOpen)
+  const [theme, setTheme] = useState<Theme>(getInitialTheme)
 
   const { data: conversations, isLoading, isError } = useQuery({
     queryKey: ['conversations'],
     queryFn: fetchConversations,
   })
 
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    document.documentElement.style.colorScheme = theme
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+  }, [theme])
+
   return (
-    <div
-      style={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        borderRight: '1px solid #e5e7eb',
-        fontFamily: 'sans-serif',
-        fontSize: '14px',
-      }}
-    >
+    <div className="cf-sidebar">
       {/* Header */}
-      <div
-        style={{
-          padding: '12px 16px',
-          borderBottom: '1px solid #e5e7eb',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}
-      >
-        <span style={{ fontWeight: 600 }}>Conversations</span>
-        <button
-          onClick={() => setModalOpen(true)}
-          title="New conversation"
-          style={{
-            background: 'none',
-            border: '1px solid #d1d5db',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            padding: '2px 8px',
-            fontSize: '18px',
-            lineHeight: 1,
-          }}
-        >
-          +
-        </button>
+      <div className="cf-sidebar-header">
+        <span className="cf-sidebar-title">Conversations</span>
+        <div className="cf-sidebar-actions">
+          <button
+            type="button"
+            onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+            aria-pressed={theme === 'dark'}
+            className="cf-theme-toggle"
+          >
+            {theme === 'dark' ? 'Light' : 'Dark'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            title="New conversation"
+            className="cf-icon-button"
+          >
+            +
+          </button>
+        </div>
       </div>
 
       {/* List */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+      <div className="cf-sidebar-list">
         {isLoading && (
-          <div style={{ padding: '8px 16px', color: '#9ca3af' }}>Loading…</div>
+          <div className="cf-sidebar-status">Loading...</div>
         )}
         {isError && (
-          <div style={{ padding: '8px 16px', color: '#ef4444' }}>
+          <div className="cf-sidebar-status cf-sidebar-error">
             Failed to load conversations.
           </div>
         )}
         {conversations &&
-          // TODO: replace `any` with the generated Conversation type from schema.ts
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (conversations as any[]).map((convo: any) => (
+          conversations.map((convo: ConversationSummary) => (
             <Link
               key={convo.id}
               to="/conversations/$id"
               params={{ id: convo.id }}
-              style={{ display: 'block', padding: '8px 16px', textDecoration: 'none', color: 'inherit' }}
-              activeProps={{ style: { display: 'block', padding: '8px 16px', textDecoration: 'none', color: 'inherit', background: '#f3f4f6', fontWeight: 600 } }}
+              className="cf-conversation-link"
+              activeProps={{ className: 'cf-conversation-link cf-conversation-link-active' }}
             >
               {convo.title ?? 'Untitled'}
             </Link>

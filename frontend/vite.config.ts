@@ -15,9 +15,8 @@ export default defineConfig({
   server: {
     port: 5173,
     // In development, proxy /api/* to FastAPI at localhost:8000.
-    // The frontend api/client.ts uses the full base URL directly
-    // (http://localhost:8000), so this proxy is available as an alternative
-    // if a relative base URL is preferred in future.
+    // The frontend API client uses a relative base URL by default, so browser
+    // requests stay same-origin and avoid CORS during local development.
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
