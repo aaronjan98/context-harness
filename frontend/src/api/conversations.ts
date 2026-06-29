@@ -13,49 +13,57 @@
  */
 
 import { api } from './client'
+import type { components } from './schema'
+
+export type ConversationSummary =
+  components['schemas']['ConversationSummaryResponse']
+export type Message = components['schemas']['MessageResponse']
+export type CreateConversationRequest =
+  components['schemas']['CreateConversationRequest']
+export type AppendMessageRequest =
+  components['schemas']['AppendMessageRequest']
 
 // ── Conversations list ────────────────────────────────────────────────────────
 
-export async function fetchConversations() {
-  const { data, error } = await api.GET('/api/conversations' as never)
+export async function fetchConversations(): Promise<ConversationSummary[]> {
+  const { data, error } = await api.GET('/api/conversations')
   if (error) throw new Error(String(error))
-  return data
+  return data ?? []
 }
 
 // ── Single conversation ───────────────────────────────────────────────────────
 
-export async function fetchConversation(id: string) {
-  const { data, error } = await api.GET('/api/conversations/{conversation_id}' as never, {
+export async function fetchConversation(
+  id: string,
+): Promise<ConversationSummary | undefined> {
+  const { data, error } = await api.GET('/api/conversations/{conversation_id}', {
     params: { path: { conversation_id: id } },
-  } as never)
+  })
   if (error) throw new Error(String(error))
   return data
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 
-export async function fetchMessages(conversationId: string) {
+export async function fetchMessages(conversationId: string): Promise<Message[]> {
   const { data, error } = await api.GET(
-    '/api/conversations/{conversation_id}/thread' as never,
-    { params: { path: { conversation_id: conversationId } } } as never
+    '/api/conversations/{conversation_id}/thread',
+    { params: { path: { conversation_id: conversationId } } },
   )
   if (error) throw new Error(String(error))
-  return (data as { messages?: unknown[] } | undefined)?.messages ?? []
+  return data?.messages ?? []
 }
 
 export async function appendMessage(
   conversationId: string,
-  body: { role: string; content: string; agent?: string }
+  body: AppendMessageRequest,
 ) {
   const { data, error } = await api.POST(
-    '/api/conversations/{conversation_id}/messages' as never,
+    '/api/conversations/{conversation_id}/messages',
     {
       params: { path: { conversation_id: conversationId } },
-      body: {
-        ...body,
-        agent: body.agent ?? (body.role === 'user' ? 'human' : 'unknown'),
-      },
-    } as never
+      body,
+    },
   )
   if (error) throw new Error(String(error))
   return data
@@ -63,10 +71,10 @@ export async function appendMessage(
 
 // ── Create conversation ───────────────────────────────────────────────────────
 
-export async function createConversation(body: { conversation_id: string }) {
-  const { data, error } = await api.POST('/api/conversations' as never, {
+export async function createConversation(body: CreateConversationRequest) {
+  const { data, error } = await api.POST('/api/conversations', {
     body,
-  } as never)
+  })
   if (error) throw new Error(String(error))
   return data
 }
@@ -76,10 +84,13 @@ export async function createConversation(body: { conversation_id: string }) {
 // See project-memory/frontend-architecture.md § Future features for details.
 
 export async function renameConversation(id: string, title: string) {
-  const { data, error } = await api.PATCH('/api/conversations/{conversation_id}' as never, {
-    params: { path: { conversation_id: id } },
-    body: { title },
-  } as never)
+  const { data, error } = await api.PATCH(
+    '/api/conversations/{conversation_id}',
+    {
+      params: { path: { conversation_id: id } },
+      body: { title },
+    },
+  )
   if (error) throw new Error(String(error))
   return data
 }

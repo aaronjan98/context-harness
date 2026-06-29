@@ -74,11 +74,15 @@ Implemented:
 - backend unit and API integration tests
 - React/Vite frontend scaffold with routing, editor abstraction, message view,
   graph placeholder, and API layer
+- aligned Phase 1 frontend/backend API contract with generated OpenAPI
+  TypeScript types
 
-Current issue:
+Current focus:
 
-- The frontend and backend API contracts have drifted and need to be aligned
-  before building more UI behavior.
+- Verify the browser UI against the real backend runtime.
+- Move the default conversation store out of `~/Repositories` and into a
+  selected `~/Documents/...` location.
+- Add basic Markdown import.
 
 ## Phase Roadmap
 

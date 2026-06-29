@@ -131,6 +131,34 @@ class ConversationStore:
             },
         }
 
+    def list_conversations(self) -> list[dict[str, Any]]:
+        """Return summaries for every initialized conversation."""
+        if not self.base_dir.exists():
+            return []
+
+        summaries: list[dict[str, Any]] = []
+        for conversation_dir in sorted(self.base_dir.iterdir()):
+            if not conversation_dir.is_dir():
+                continue
+            if not (conversation_dir / "conversation.yaml").exists():
+                continue
+            summaries.append(self.conversation_summary(conversation_dir.name))
+        return sorted(
+            summaries,
+            key=lambda summary: str(summary["created_at"]),
+            reverse=True,
+        )
+
+    def update_conversation_title(
+        self, conversation_id: str, title: str
+    ) -> dict[str, Any]:
+        """Update conversation title metadata and return the new summary."""
+        paths = self.initialize_conversation(conversation_id)
+        metadata = self.load_conversation_metadata(conversation_id)
+        metadata.title = title
+        self.write_conversation_metadata(paths, metadata)
+        return self.conversation_summary(conversation_id)
+
     def append_message(
         self,
         conversation_id: str,

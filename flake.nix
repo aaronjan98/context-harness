@@ -25,8 +25,8 @@
 
         shellHook = ''
           echo "Context Forge dev environment"
-          echo "  uvicorn server.main:app --port 5050 --reload"
-          echo "  open the API docs at http://127.0.0.1:5050/docs"
+          echo "  uvicorn server.main:app --port 8000 --reload"
+          echo "  open the API docs at http://127.0.0.1:8000/docs"
         '';
       };
     };

@@ -27,13 +27,14 @@ Completed:
 - frontend architecture plan (all checkpoints agreed with user)
 - frontend scaffold: config files, all feature stubs, API layer, store, shared
   components (see project-memory/frontend-architecture.md)
+- aligned Phase 1 frontend/backend API contract with generated OpenAPI types
+- frontend production build passes
 
 Current focus:
-- finish the Phase 1 frontend/backend API contract after the initial `/api`
-  namespace alignment
-- frontend Phase 1 implementation (chat UI, input, conversation list) after the
-  API contract is stable
+- verify the Phase 1 browser UI shell and message submission flow against the
+  real backend runtime
 - remaining Phase 1 backend feature: Markdown import
+- move canonical conversation storage to a selected `~/Documents/...` path
 - backend robustness to support the live frontend
 
 Explicit boundary:
@@ -56,10 +57,10 @@ Explicit boundary:
   configured backend capabilities, not browser powers
 
 ## Next steps
-- Planning checkpoint: preserve the local capability backend decision in specs
-  and memory
-- Implementation checkpoint: align backend routes/payloads with the React API
-  layer and regenerate frontend OpenAPI types
+- Implementation checkpoint: run the live browser/backend smoke test for
+  conversation list, create/open, thread load, and message submission
+- Implementation checkpoint: move the default conversation store from
+  `~/Repositories/conversations` to a selected `~/Documents/...` location
 - Backend: Markdown import with light speaker-pattern matching after the API
   contract is stable
 

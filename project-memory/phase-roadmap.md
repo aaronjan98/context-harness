@@ -13,9 +13,11 @@ Success means:
   canonical writer
 
 Current status:
-- backend foundation mostly complete
-- frontend scaffold exists but does not yet match the backend API contract
+- backend foundation mostly complete and covered by tests
+- frontend scaffold now matches the backend API contract at the typed API layer
+- frontend production build passes
 - Markdown import is the main remaining backend feature for this phase
+- live browser/backend smoke testing is still pending
 - local files/tools/skills are future backend capabilities, not Phase 1
   behavior
 

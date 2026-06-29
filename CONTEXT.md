@@ -32,8 +32,7 @@ canonical conversation store that:
 
 ## Current priorities
 - Keep backend behavior robust while preserving future branch/graph expansion
-- Finish the Phase 1 API contract after the `/api` namespace alignment:
-  conversation listing, generated OpenAPI types, and frontend verification
+- Verify the Phase 1 browser UI against the real backend runtime
 - Finish the remaining Phase 1 backend work, especially Markdown import
 - Move the default canonical conversation store out of `~/Repositories` and
   into a selected `~/Documents/...` location
@@ -61,10 +60,11 @@ Implemented and tested:
 - Canonical message append/write/read path
 - Active-thread reconstruction from message parent links
 - `exports/current.md` regeneration after writes
+- Phase 1 API contract for list/create/get/rename/thread/append
+- Generated frontend OpenAPI TypeScript schema
 - Backend unit tests and API integration tests
 
 Still pending on the backend for Phase 1:
-- Full frontend/backend API contract completion after namespace alignment
 - Markdown import with light speaker-pattern matching
 - Any additional robustness improvements needed to support the user-built UI
 
