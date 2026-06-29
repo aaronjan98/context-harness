@@ -3,8 +3,10 @@
 ## Product shape
 - The product is a local conversation workspace, not a Claude-specific display
   panel
-- `agent-display` is the current working name
+- `Context Forge` is the product name
+- `context-harness` is the repository/category name
 - The conversation is the source of truth; the UI is a control surface over it
+- The app is a local harness with a browser UI, not a hosted web app
 
 ## User model
 - v1 is single-user
@@ -24,6 +26,14 @@
 - The default context sent to an agent is the entire active thread
 - Multi-agent replies remain in one visible linear thread by default
 
+## Local capabilities
+- Local file, directory, skill, import/export, and future shell/tool access is
+  mediated by the backend
+- The browser UI never receives raw filesystem or shell authority
+- Capabilities must be explicitly configured so the app can be portable beyond
+  AJ's NixOS machine
+- Phase 1 does not implement arbitrary tool execution
+
 ## Import and export
 - Markdown import should do light pattern matching for speaker turns
 - Imported Markdown becomes a simple linear conversation
@@ -38,6 +48,10 @@
 ## Roadmap
 - Graph view comes after forking work and after Vim/math-editor work
 - Forking/branching is a future phase, not a v1 requirement
+- Context lenses come with graph/navigation work, after the basic conversation
+  and editing model is reliable
+- Agent/web-chatbot bridging and controlled tool actions are Phase 5 concerns,
+  not Phase 1 concerns
 
 ## Frontend architecture
 - Framework: React 18 + Vite + TypeScript (not Next.js — SSR has no value for

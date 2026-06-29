@@ -1,13 +1,15 @@
-# Product Spec — agent-display
+# Product Spec - Context Forge
 
 ## Overview
-`agent-display` is a local, single-user conversation workspace for AI agents and
-chat tools. It treats the conversation itself as the durable artifact and allows
-different agents to participate in the same thread over time.
+Context Forge is a local, single-user conversation/context harness for AI agents
+and chat tools. It treats the conversation itself as the durable artifact and
+allows different agents and web chatbots to participate in the same thread over
+time.
 
 The product is designed around a file-first canonical conversation store, a web
-UI for reading and editing conversations, and exports that let external agents
-or chat tools continue a thread without owning its state.
+UI for reading and editing conversations, a local backend that mediates access
+to configured files/tools/skills, and exports that let external agents or chat
+tools continue a thread without owning its state.
 
 ## Product goal
 Create a local interface where a user can:
@@ -16,6 +18,8 @@ Create a local interface where a user can:
 - preserve those conversations independently of any one AI product
 - let different agents continue the same thread
 - reshape conversations later through editing, forking, and visual navigation
+- mediate local context access through explicit backend capabilities, not raw
+  browser access
 
 ## Non-goals for v1
 - cloud sync or multi-user collaboration
@@ -23,6 +27,8 @@ Create a local interface where a user can:
 - graph editing
 - advanced search and project metadata indexing
 - binary attachment workflows beyond future hooks in the model
+- arbitrary shell/tool execution from the browser
+- general-purpose agent orchestration
 
 ## Core principles
 
@@ -38,12 +44,22 @@ metadata stays consistent.
 The core app should not depend on Claude-specific features. Adapters may exist,
 but they are not the architecture.
 
+### Local capability backend
+The browser UI is only a control surface. Local file, tool, skill, and directory
+access must be mediated by the backend through explicit configured
+capabilities.
+
 ### Mixed-purpose by default
 A single conversation may contain coding, math, and general discussion together.
 
 ### Predictable context
 When an agent continues a conversation, the default context is the entire active
 thread.
+
+### Context is everything
+The product should make context visible, editable, exportable, and eventually
+selectively expandable. Long conversations should support deliberate context
+lenses instead of forcing every model to consume every prior message.
 
 ## Users
 Primary user: AJ on a local machine.
@@ -52,6 +68,8 @@ Primary usage patterns:
 - continue one conversation across multiple AI agents
 - keep a readable durable record of important technical and mathematical chats
 - improve math-heavy input and output compared with stock chat tools
+- use local knowledge sources, such as notes or project files, through an
+  explicit local capability layer
 
 ## Canonical data model
 
@@ -96,6 +114,12 @@ See `project-memory/storage-model.md` for the durable rationale and examples.
 ### Canonical writer
 Only the app writes canonical conversation files.
 
+### Local capability access
+The backend is the only layer allowed to touch local configured capabilities:
+files, directories, skills, imports, exports, and future shell/tool actions.
+The browser UI requests operations through APIs and never receives direct raw
+filesystem or shell authority.
+
 ### External readers
 External tools and agents may read conversation exports freely.
 
@@ -130,23 +154,29 @@ canonical conversation model. More advanced export handling is deferred.
 - one-agent or mock reply path
 - Markdown export sync
 - basic Markdown import
+- aligned frontend/backend API contract
 
 ### Phase 2 — Math-native input
 - Vim-style editor
 - Obsidian-compatible LaTeX shortcut workflow
+- structured writing support for math-heavy and bullet-heavy context
 
 ### Phase 3 — Forking and thread manipulation
 - fork from a prior message
 - insert/edit/delete from the GUI
 - rollback support as a real workflow
 
-### Phase 4 — Graph view
+### Phase 4 — Context lenses and graph view
 - visual conversation graph
 - branch navigation via nodes/edges
+- selective exports such as full thread, branch-only, summary, or topic-focused
+  context
 
-### Phase 5 — Multi-agent workflow
+### Phase 5 — Agent and web-chatbot bridge
 - multiple agent adapters
 - smoother handoff and continuation between tools
+- controlled tool-action workflow where model output can request local actions
+  that the backend mediates and the user approves
 
 ## Success criteria
 
@@ -159,3 +189,5 @@ canonical conversation model. More advanced export handling is deferred.
 - conversations outlive any one model or tool
 - math-heavy use feels materially better than ordinary chat tools
 - future branching and graph features fit naturally onto the same storage model
+- users can control what context a model receives instead of treating a long
+  conversation as an all-or-nothing transcript

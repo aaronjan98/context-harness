@@ -3,8 +3,9 @@
 ## Current state
 The project is in early implementation, not just planning. The old
 Claude-specific display-panel plan has been retired in favor of a broader
-`agent-display` direction, and the backend conversation foundation is now in
-place and tested.
+Context Forge direction. Context Forge is a local conversation/context harness:
+a local backend with a browser UI, not a hosted web app. The backend
+conversation foundation is now in place and tested.
 
 ## Active documents
 - `specs/product-spec.md` — master product spec covering the overall product and
@@ -28,13 +29,17 @@ Completed:
   components (see project-memory/frontend-architecture.md)
 
 Current focus:
-- frontend Phase 1 implementation (chat UI, input, conversation list)
+- align the Phase 1 frontend/backend API contract
+- frontend Phase 1 implementation (chat UI, input, conversation list) after the
+  API contract is stable
 - remaining Phase 1 backend feature: Markdown import
 - backend robustness to support the live frontend
 
 Explicit boundary:
 - backend changes must preserve future support for branching, graph view, and
   multi-agent workflows
+- browser UI must not receive raw filesystem or shell authority; future local
+  capabilities are mediated by backend APIs
 - frontend feature slice discipline: features must not import from each other
 
 ## Working assumptions
@@ -44,11 +49,16 @@ Explicit boundary:
 - Conversations can mix coding, math, and general discussion
 - Agents share context by reading exports, then sending new content back through
   the app
+- Local files, directories, skills, imports/exports, and future tool actions are
+  configured backend capabilities, not browser powers
 
 ## Next steps
-- Frontend: implement Phase 1 features (ConversationSidebar, ThreadView,
-  SimpleEditor, MessageContent with KaTeX, API integration)
-- Backend: Markdown import with light speaker-pattern matching
+- Planning checkpoint: preserve the local capability backend decision in specs
+  and memory
+- Implementation checkpoint: align backend routes/payloads with the React API
+  layer and regenerate frontend OpenAPI types
+- Backend: Markdown import with light speaker-pattern matching after the API
+  contract is stable
 
 ## Active documents
 - `project-memory/frontend-architecture.md` — canonical frontend reference for
