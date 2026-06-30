@@ -23,11 +23,37 @@ export type CreateConversationRequest =
 export type AppendMessageRequest =
   components['schemas']['AppendMessageRequest']
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+function apiErrorMessage(error: unknown): string {
+  if (typeof error === 'string') return error
+  if (error && typeof error === 'object' && 'detail' in error) {
+    return String(error.detail)
+  }
+  return 'API request failed'
+}
+
+function toApiError(error: unknown, response: unknown): ApiError {
+  const status =
+    response && typeof response === 'object' && 'status' in response
+      ? Number(response.status)
+      : 0
+  return new ApiError(apiErrorMessage(error), status)
+}
+
 // ── Conversations list ────────────────────────────────────────────────────────
 
 export async function fetchConversations(): Promise<ConversationSummary[]> {
-  const { data, error } = await api.GET('/api/conversations')
-  if (error) throw new Error(String(error))
+  const { data, error, response } = await api.GET('/api/conversations')
+  if (error) throw toApiError(error, response)
   return data ?? []
 }
 
@@ -36,21 +62,24 @@ export async function fetchConversations(): Promise<ConversationSummary[]> {
 export async function fetchConversation(
   id: string,
 ): Promise<ConversationSummary | undefined> {
-  const { data, error } = await api.GET('/api/conversations/{conversation_id}', {
-    params: { path: { conversation_id: id } },
-  })
-  if (error) throw new Error(String(error))
+  const { data, error, response } = await api.GET(
+    '/api/conversations/{conversation_id}',
+    {
+      params: { path: { conversation_id: id } },
+    },
+  )
+  if (error) throw toApiError(error, response)
   return data
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 
 export async function fetchMessages(conversationId: string): Promise<Message[]> {
-  const { data, error } = await api.GET(
+  const { data, error, response } = await api.GET(
     '/api/conversations/{conversation_id}/thread',
     { params: { path: { conversation_id: conversationId } } },
   )
-  if (error) throw new Error(String(error))
+  if (error) throw toApiError(error, response)
   return data?.messages ?? []
 }
 
@@ -58,24 +87,24 @@ export async function appendMessage(
   conversationId: string,
   body: AppendMessageRequest,
 ) {
-  const { data, error } = await api.POST(
+  const { data, error, response } = await api.POST(
     '/api/conversations/{conversation_id}/messages',
     {
       params: { path: { conversation_id: conversationId } },
       body,
     },
   )
-  if (error) throw new Error(String(error))
+  if (error) throw toApiError(error, response)
   return data
 }
 
 // ── Create conversation ───────────────────────────────────────────────────────
 
 export async function createConversation(body: CreateConversationRequest) {
-  const { data, error } = await api.POST('/api/conversations', {
+  const { data, error, response } = await api.POST('/api/conversations', {
     body,
   })
-  if (error) throw new Error(String(error))
+  if (error) throw toApiError(error, response)
   return data
 }
 
@@ -84,13 +113,25 @@ export async function createConversation(body: CreateConversationRequest) {
 // See project-memory/frontend-architecture.md § Future features for details.
 
 export async function renameConversation(id: string, title: string) {
-  const { data, error } = await api.PATCH(
+  const { data, error, response } = await api.PATCH(
     '/api/conversations/{conversation_id}',
     {
       params: { path: { conversation_id: id } },
       body: { title },
     },
   )
-  if (error) throw new Error(String(error))
+  if (error) throw toApiError(error, response)
   return data
+}
+
+// ── Delete conversation ───────────────────────────────────────────────────────
+
+export async function deleteConversation(id: string) {
+  const { error, response } = await api.DELETE(
+    '/api/conversations/{conversation_id}',
+    {
+      params: { path: { conversation_id: id } },
+    },
+  )
+  if (error) throw toApiError(error, response)
 }

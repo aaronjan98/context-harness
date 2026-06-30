@@ -11,7 +11,12 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createConversation, fetchConversations } from '@/api/conversations'
+import {
+  createConversation,
+  deleteConversation,
+  fetchConversations,
+  renameConversation,
+} from '@/api/conversations'
 import type { ConversationSummary } from '@/api/conversations'
 
 type Theme = 'light' | 'dark'
@@ -27,6 +32,8 @@ function getInitialTheme(): Theme {
 
 export function ConversationSidebar() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState('')
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
@@ -55,6 +62,43 @@ export function ConversationSidebar() {
       })
     },
   })
+
+  const {
+    mutate: saveTitle,
+    isError: renameFailed,
+  } = useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) =>
+      renameConversation(id, title),
+    onSuccess: async () => {
+      setEditingId(null)
+      setEditingTitle('')
+      await queryClient.invalidateQueries({ queryKey: ['conversations'] })
+    },
+  })
+
+  const {
+    mutate: removeConversation,
+    isError: deleteFailed,
+  } = useMutation({
+    mutationFn: deleteConversation,
+    onSuccess: async (_, deletedId) => {
+      await queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      queryClient.removeQueries({ queryKey: ['conversations', deletedId] })
+      await navigate({ to: '/conversations' })
+    },
+  })
+
+  function startRename(conversation: ConversationSummary) {
+    setEditingId(conversation.id)
+    setEditingTitle(conversation.title ?? '')
+  }
+
+  function submitRename() {
+    if (!editingId) return
+    const title = editingTitle.trim()
+    if (!title) return
+    saveTitle({ id: editingId, title })
+  }
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
@@ -103,18 +147,69 @@ export function ConversationSidebar() {
             Failed to create conversation.
           </div>
         )}
+        {renameFailed && (
+          <div className="cf-sidebar-status cf-sidebar-error">
+            Failed to rename conversation.
+          </div>
+        )}
+        {deleteFailed && (
+          <div className="cf-sidebar-status cf-sidebar-error">
+            Failed to delete conversation.
+          </div>
+        )}
         {conversations &&
-          conversations.map((convo: ConversationSummary) => (
-            <Link
-              key={convo.id}
-              to="/conversations/$id"
-              params={{ id: convo.id }}
-              className="cf-conversation-link"
-              activeProps={{ className: 'cf-conversation-link cf-conversation-link-active' }}
-            >
-              {convo.title ?? 'Untitled'}
-            </Link>
-          ))}
+          conversations.map((convo: ConversationSummary) => {
+            const isEditing = editingId === convo.id
+
+            return (
+              <div
+                key={convo.id}
+                className={`cf-conversation-row ${isEditing ? 'cf-conversation-row-editing' : ''}`}
+              >
+                {isEditing ? (
+                  <input
+                    value={editingTitle}
+                    onChange={(event) => setEditingTitle(event.target.value)}
+                    onBlur={submitRename}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') submitRename()
+                      if (event.key === 'Escape') {
+                        setEditingId(null)
+                        setEditingTitle('')
+                      }
+                    }}
+                    className="cf-conversation-title-input"
+                    autoFocus
+                  />
+                ) : (
+                  <>
+                    <Link
+                      to="/conversations/$id"
+                      params={{ id: convo.id }}
+                      className="cf-conversation-link"
+                      activeProps={{
+                        className: 'cf-conversation-link cf-conversation-link-active',
+                      }}
+                      onDoubleClick={(event) => {
+                        event.preventDefault()
+                        startRename(convo)
+                      }}
+                    >
+                      {convo.title ?? 'Untitled'}
+                    </Link>
+                    <button
+                      type="button"
+                      className="cf-conversation-delete"
+                      title="Delete conversation"
+                      onClick={() => removeConversation(convo.id)}
+                    >
+                      ×
+                    </button>
+                  </>
+                )}
+              </div>
+            )
+          })}
       </div>
     </div>
   )

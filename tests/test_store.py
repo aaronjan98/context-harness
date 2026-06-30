@@ -29,6 +29,7 @@ def test_initialize_conversation_creates_expected_layout(store: ConversationStor
 
 def test_append_message_updates_metadata_and_export(store: ConversationStore) -> None:
     conversation_id = "unit-append"
+    store.initialize_conversation(conversation_id)
 
     first = store.append_message(
         conversation_id,
@@ -58,6 +59,39 @@ def test_append_message_updates_metadata_and_export(store: ConversationStore) ->
     assert "## User" in export_text
     assert "## claude" in export_text
     assert "one file per message" in export_text
+
+
+def test_append_user_message_autotitles_placeholder_conversation(
+    store: ConversationStore,
+) -> None:
+    conversation_id = "unit-autotitle"
+    store.initialize_conversation(conversation_id)
+
+    store.append_message(
+        conversation_id,
+        role="user",
+        agent="human",
+        content="How do context harnesses differ from agent harnesses?\nMore detail.",
+    )
+
+    metadata = store.load_conversation_metadata(conversation_id)
+    assert metadata.title == "How do context harnesses differ from agent harnesses?"
+
+
+def test_append_user_message_keeps_manual_title(store: ConversationStore) -> None:
+    conversation_id = "unit-manual-title"
+    store.initialize_conversation(conversation_id)
+    store.update_conversation_title(conversation_id, "Research planning")
+
+    store.append_message(
+        conversation_id,
+        role="user",
+        agent="human",
+        content="This should not replace the manual title.",
+    )
+
+    metadata = store.load_conversation_metadata(conversation_id)
+    assert metadata.title == "Research planning"
 
 
 def test_read_message_file_round_trips_frontmatter_and_body(store: ConversationStore) -> None:

@@ -1,7 +1,7 @@
 """FastAPI application entrypoint for Context Forge."""
 
 from pydantic import BaseModel, Field
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 
 from server.docs import get_context_forge_docs_html
@@ -88,6 +88,13 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
     app = FastAPI(title="Context Forge", docs_url=None)
     store = conversation_store or ConversationStore()
 
+    def conversation_not_found(conversation_id: str) -> HTTPException:
+        """Return a consistent 404 for missing conversation reads/writes."""
+        return HTTPException(
+            status_code=404,
+            detail=f"Conversation not found: {conversation_id}",
+        )
+
     @app.get("/docs", include_in_schema=False)
     async def docs() -> HTMLResponse:
         """Render dark-themed Swagger UI documentation."""
@@ -128,7 +135,10 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
     )
     async def get_conversation(conversation_id: str) -> dict[str, object]:
         """Return basic metadata for one conversation."""
-        return store.conversation_summary(conversation_id)
+        try:
+            return store.conversation_summary(conversation_id)
+        except FileNotFoundError as error:
+            raise conversation_not_found(conversation_id) from error
 
     @app.patch(
         "/api/conversations/{conversation_id}",
@@ -139,7 +149,18 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
         payload: RenameConversationRequest,
     ) -> dict[str, object]:
         """Update a conversation title."""
-        return store.update_conversation_title(conversation_id, payload.title)
+        try:
+            return store.update_conversation_title(conversation_id, payload.title)
+        except FileNotFoundError as error:
+            raise conversation_not_found(conversation_id) from error
+
+    @app.delete("/api/conversations/{conversation_id}", status_code=204)
+    async def delete_conversation(conversation_id: str) -> None:
+        """Delete one conversation and its canonical files."""
+        try:
+            store.delete_conversation(conversation_id)
+        except FileNotFoundError as error:
+            raise conversation_not_found(conversation_id) from error
 
     @app.get(
         "/api/conversations/{conversation_id}/thread",
@@ -147,11 +168,16 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
     )
     async def get_active_thread(conversation_id: str) -> dict[str, object]:
         """Return the active thread from root to active message."""
-        thread = store.active_thread(conversation_id)
-        return {
-            "conversation": store.conversation_summary(conversation_id),
-            "messages": [serialize_message(message).model_dump() for message in thread],
-        }
+        try:
+            thread = store.active_thread(conversation_id)
+            return {
+                "conversation": store.conversation_summary(conversation_id),
+                "messages": [
+                    serialize_message(message).model_dump() for message in thread
+                ],
+            }
+        except FileNotFoundError as error:
+            raise conversation_not_found(conversation_id) from error
 
     @app.post(
         "/api/conversations/{conversation_id}/messages",
@@ -163,13 +189,16 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
     ) -> dict[str, object]:
         """Append one message to the active thread and return the updated thread."""
         agent = payload.agent or ("human" if payload.role == "user" else "unknown")
-        store.append_message(
-            conversation_id,
-            role=payload.role,
-            agent=agent,
-            content=payload.content,
-            message_format=payload.message_format or "markdown",
-        )
+        try:
+            store.append_message(
+                conversation_id,
+                role=payload.role,
+                agent=agent,
+                content=payload.content,
+                message_format=payload.message_format or "markdown",
+            )
+        except FileNotFoundError as error:
+            raise conversation_not_found(conversation_id) from error
         return await get_active_thread(conversation_id)
 
     return app

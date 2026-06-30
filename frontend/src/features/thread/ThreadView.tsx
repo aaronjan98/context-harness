@@ -19,18 +19,19 @@
 import { useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { conversationRoute } from '@/app/router'
 import { Editor } from '@/features/editor'
 import { GraphPanel } from '@/features/graph'
 import { MessageContent } from '@/shared/components/MessageContent'
 import { useUIStore } from '@/store/ui'
-import { fetchMessages, appendMessage } from '@/api/conversations'
+import { ApiError, fetchMessages, appendMessage } from '@/api/conversations'
 import type { Message } from '@/api/conversations'
 
 export function ThreadView() {
   const { id } = conversationRoute.useParams()
   const { panel } = conversationRoute.useSearch()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
 
   const focusedMessageId = useUIStore((s) => s.focusedMessageId)
@@ -40,7 +41,7 @@ export function ThreadView() {
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   // Fetch messages for this conversation
-  const { data: messages, isLoading, isError } = useQuery({
+  const { data: messages, error, isLoading, isError } = useQuery({
     queryKey: ['conversations', id, 'messages'],
     queryFn: () => fetchMessages(id),
     enabled: !!id,
@@ -52,6 +53,7 @@ export function ThreadView() {
       appendMessage(id, { role: 'user', content }),
     onSuccess: () => {
       clearDraft(id)
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
       queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
     },
   })
@@ -66,10 +68,27 @@ export function ThreadView() {
     }
   }, [focusedMessageId])
 
+  useEffect(() => {
+    if (error instanceof ApiError && error.status === 404) {
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      navigate({ to: '/conversations', replace: true })
+    }
+  }, [error, navigate, queryClient])
+
   function handleSubmit() {
     const content = draft.trim()
     if (!content || isSending) return
     sendMessage(content)
+  }
+
+  const isMissingConversation = error instanceof ApiError && error.status === 404
+
+  if (isMissingConversation) {
+    return (
+      <div className="cf-empty-state">
+        Select a conversation or create a new one.
+      </div>
+    )
   }
 
   return (
@@ -95,7 +114,7 @@ export function ThreadView() {
         {/* Message list */}
         <div className="cf-thread-scroll">
           {isLoading && <div className="cf-sidebar-status">Loading...</div>}
-          {isError && (
+          {isError && !(error instanceof ApiError && error.status === 404) && (
             <div className="cf-sidebar-status cf-sidebar-error">
               Failed to load messages.
             </div>

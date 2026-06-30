@@ -141,22 +141,81 @@ textarea {
   color: var(--cf-danger);
 }
 
-.cf-conversation-link {
-  display: block;
-  padding: 8px 16px;
-  color: inherit;
-  text-decoration: none;
-  transition: background-color 120ms ease, color 120ms ease;
+.cf-conversation-row {
+  display: flex;
+  align-items: stretch;
+  transition: background-color 120ms ease;
 }
 
-.cf-conversation-link:hover {
+.cf-conversation-row:hover {
   background: var(--cf-highlight);
 }
 
-.cf-conversation-link-active {
+.cf-conversation-row:has(.cf-conversation-link-active) {
   background: var(--cf-surface-muted);
   box-shadow: inset 3px 0 0 var(--cf-accent), var(--cf-glow);
+}
+
+.cf-conversation-row-editing,
+.cf-conversation-row-editing:hover {
+  background: transparent;
+  box-shadow: none;
+}
+
+.cf-conversation-link {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 8px 8px 16px;
+  background: transparent;
+  color: inherit;
+  overflow: hidden;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.cf-conversation-link-active {
+  background: transparent;
   font-weight: 600;
+}
+
+.cf-conversation-delete {
+  width: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--cf-subtle);
+  cursor: pointer;
+  opacity: 0;
+  transition: color 120ms ease, opacity 120ms ease;
+}
+
+.cf-conversation-row:hover .cf-conversation-delete,
+.cf-conversation-row:focus-within .cf-conversation-delete {
+  opacity: 1;
+}
+
+.cf-conversation-delete:hover {
+  color: var(--cf-danger);
+}
+
+.cf-conversation-title-input {
+  flex: 1;
+  min-width: 0;
+  margin: 4px 4px 4px 12px;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 4px;
+  outline: none;
+  background: var(--cf-surface);
+  color: var(--cf-text);
+  font: inherit;
+  padding: 3px 4px;
+}
+
+.cf-conversation-title-input:focus {
+  border-color: var(--cf-accent);
+  box-shadow: var(--cf-glow);
 }
 
 .cf-empty-state,

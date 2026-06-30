@@ -19,6 +19,30 @@ def test_create_conversation_returns_metadata(client) -> None:
     assert payload["active_message_id"] is None
 
 
+def test_read_missing_conversation_does_not_create_it(client, store) -> None:
+    response = client.get("/api/conversations/missing-thread")
+
+    assert response.status_code == 404
+    assert not store.conversation_dir("missing-thread").exists()
+
+
+def test_read_missing_thread_does_not_create_conversation(client, store) -> None:
+    response = client.get("/api/conversations/missing-thread/thread")
+
+    assert response.status_code == 404
+    assert not store.conversation_dir("missing-thread").exists()
+
+
+def test_append_missing_conversation_does_not_create_it(client, store) -> None:
+    response = client.post(
+        "/api/conversations/missing-thread/messages",
+        json={"role": "user", "content": "Do not create this implicitly."},
+    )
+
+    assert response.status_code == 404
+    assert not store.conversation_dir("missing-thread").exists()
+
+
 def test_create_conversation_accepts_title_and_list_returns_summaries(client) -> None:
     first = client.post(
         "/api/conversations",
@@ -58,6 +82,25 @@ def test_rename_conversation_updates_metadata(client) -> None:
     assert fetched.status_code == 200
     assert renamed.json()["title"] == "Renamed Thread"
     assert fetched.json()["title"] == "Renamed Thread"
+
+
+def test_delete_conversation_removes_folder_and_list_entry(client, store) -> None:
+    client.post("/api/conversations", json={"conversation_id": "api-delete"})
+
+    deleted = client.delete("/api/conversations/api-delete")
+    listed = client.get("/api/conversations")
+
+    assert deleted.status_code == 204
+    assert not store.conversation_dir("api-delete").exists()
+    assert listed.status_code == 200
+    assert all(conversation["id"] != "api-delete" for conversation in listed.json())
+
+
+def test_delete_missing_conversation_does_not_create_it(client, store) -> None:
+    deleted = client.delete("/api/conversations/missing-delete")
+
+    assert deleted.status_code == 404
+    assert not store.conversation_dir("missing-delete").exists()
 
 
 def test_append_user_message_defaults_agent_to_human(client) -> None:

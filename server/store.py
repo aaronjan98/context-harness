@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+import shutil
 from typing import Any
 
 import yaml
@@ -50,6 +51,8 @@ class MessageRecord:
 class ConversationStore:
     """Owns canonical conversation folder layout on disk."""
 
+    placeholder_title = "New conversation"
+
     def __init__(self, base_dir: Path | None = None) -> None:
         self.base_dir = (
             base_dir or Path.home() / "Documents" / "context-harness" / "conversations"
@@ -84,12 +87,19 @@ class ConversationStore:
             directory.mkdir(parents=True, exist_ok=True)
         return paths
 
+    def require_existing_conversation(self, conversation_id: str) -> StorePaths:
+        """Return paths for an existing conversation or raise FileNotFoundError."""
+        paths = self.paths_for(conversation_id)
+        if not paths.conversation_file.exists():
+            raise FileNotFoundError(f"Conversation not found: {conversation_id}")
+        return paths
+
     def default_conversation_metadata(self, conversation_id: str) -> str:
         """Return starter YAML for a new conversation file."""
         created_at = datetime.now().astimezone().isoformat(timespec="seconds")
         return (
             f"id: {conversation_id}\n"
-            f"title: {conversation_id}\n"
+            f"title: {self.placeholder_title}\n"
             f"created_at: {created_at}\n"
             "root_message_id:\n"
             "active_message_id:\n"
@@ -104,7 +114,7 @@ class ConversationStore:
 
     def load_conversation_metadata(self, conversation_id: str) -> ConversationMetadata:
         """Load conversation-level metadata from disk."""
-        paths = self.initialize_conversation(conversation_id)
+        paths = self.require_existing_conversation(conversation_id)
         values = self.parse_yaml_mapping(
             paths.conversation_file.read_text(encoding="utf-8")
         )
@@ -155,11 +165,16 @@ class ConversationStore:
         self, conversation_id: str, title: str
     ) -> dict[str, Any]:
         """Update conversation title metadata and return the new summary."""
-        paths = self.initialize_conversation(conversation_id)
+        paths = self.require_existing_conversation(conversation_id)
         metadata = self.load_conversation_metadata(conversation_id)
         metadata.title = title
         self.write_conversation_metadata(paths, metadata)
         return self.conversation_summary(conversation_id)
+
+    def delete_conversation(self, conversation_id: str) -> None:
+        """Remove a conversation folder and all canonical files under it."""
+        paths = self.require_existing_conversation(conversation_id)
+        shutil.rmtree(paths.root)
 
     def append_message(
         self,
@@ -171,7 +186,7 @@ class ConversationStore:
         message_format: str = "markdown",
     ) -> MessageRecord:
         """Append one message to the active thread and refresh metadata/export."""
-        paths = self.initialize_conversation(conversation_id)
+        paths = self.require_existing_conversation(conversation_id)
         metadata = self.load_conversation_metadata(conversation_id)
         message_id = self.next_message_id(conversation_id)
         record = MessageRecord(
@@ -189,6 +204,8 @@ class ConversationStore:
         if metadata.root_message_id is None:
             metadata.root_message_id = record.id
         metadata.active_message_id = record.id
+        if role == "user" and self.should_autotitle(metadata, conversation_id):
+            metadata.title = self.title_from_message(content)
         self.write_conversation_metadata(paths, metadata)
         self.write_current_export(paths, self.active_thread(conversation_id))
         return record
@@ -228,7 +245,7 @@ class ConversationStore:
 
     def load_all_messages(self, conversation_id: str) -> dict[str, MessageRecord]:
         """Load every canonical message file for one conversation."""
-        paths = self.initialize_conversation(conversation_id)
+        paths = self.require_existing_conversation(conversation_id)
         messages: dict[str, MessageRecord] = {}
         for message_file in sorted(paths.messages.glob("*.md")):
             record = self.read_message_file(message_file)
@@ -237,7 +254,7 @@ class ConversationStore:
 
     def next_message_id(self, conversation_id: str) -> str:
         """Allocate the next stable message id for a conversation."""
-        paths = self.initialize_conversation(conversation_id)
+        paths = self.require_existing_conversation(conversation_id)
         existing = sorted(paths.messages.glob("m*.md"))
         if not existing:
             return "m0001"
@@ -321,6 +338,21 @@ class ConversationStore:
             sections.append(f"## {speaker}\n{message.content}".strip())
         export_text = "\n\n".join(sections)
         (paths.exports / "current.md").write_text(export_text, encoding="utf-8")
+
+    def should_autotitle(
+        self, metadata: ConversationMetadata, conversation_id: str
+    ) -> bool:
+        """Return whether a user message should replace the current title."""
+        return metadata.title in {conversation_id, self.placeholder_title}
+
+    @staticmethod
+    def title_from_message(content: str) -> str:
+        """Create a compact sidebar title from the first non-empty message line."""
+        title = next(
+            (line.strip() for line in content.splitlines() if line.strip()),
+            "New conversation",
+        )
+        return title if len(title) <= 64 else f"{title[:61]}..."
 
     @staticmethod
     def _to_optional_text(value: Any) -> str | None:
