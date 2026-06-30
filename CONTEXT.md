@@ -19,9 +19,9 @@ canonical conversation store that:
 ## Current state
 - Product definition is locked in at a high level
 - Backend conversation foundation is implemented and tested
-- Frontend scaffold is in place: React + Vite + TypeScript, all feature stubs
-  created, architecture fully documented in project-memory/frontend-architecture.md
-- Phase 1 frontend implementation is the active focus
+- Frontend scaffold is in place: React + Vite + TypeScript, API-backed sidebar
+  and thread lifecycle controls are implemented and verified
+- Phase 1 backend Markdown import is the active focus
 
 ## Working model
 - One conversation folder is the durable unit
@@ -32,7 +32,6 @@ canonical conversation store that:
 
 ## Current priorities
 - Keep backend behavior robust while preserving future branch/graph expansion
-- Verify the Phase 1 browser UI against the real backend runtime
 - Finish the remaining Phase 1 backend work, especially Markdown import
 - Keep the default canonical conversation store under
   `~/Documents/context-harness/conversations`
@@ -61,7 +60,10 @@ Implemented and tested:
 - Canonical message append/write/read path
 - Active-thread reconstruction from message parent links
 - `exports/current.md` regeneration after writes
-- Phase 1 API contract for list/create/get/rename/thread/append
+- Phase 1 API contract for list/create/get/rename/delete/thread/append
+- Browser lifecycle verified against the real backend: empty state, explicit
+  create, message submit, auto-title refresh, rename, delete, stale-route
+  recovery, and Documents-backed storage
 - Generated frontend OpenAPI TypeScript schema
 - Backend unit tests and API integration tests
 

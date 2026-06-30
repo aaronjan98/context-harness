@@ -29,10 +29,11 @@ Completed:
   components (see project-memory/frontend-architecture.md)
 - aligned Phase 1 frontend/backend API contract with generated OpenAPI types
 - frontend production build passes
+- live browser/backend lifecycle verified: empty state, explicit create,
+  message submit, auto-title refresh, rename, delete, stale-route recovery, and
+  Documents-backed storage
 
 Current focus:
-- verify the Phase 1 browser UI shell and message submission flow against the
-  real backend runtime
 - remaining Phase 1 backend feature: Markdown import
 - keep canonical conversation storage under
   `~/Documents/context-harness/conversations`
@@ -58,12 +59,10 @@ Explicit boundary:
   configured backend capabilities, not browser powers
 
 ## Next steps
-- Implementation checkpoint: run the live browser/backend smoke test for
-  conversation list, create/open, thread load, and message submission
-- Implementation checkpoint: verify the default conversation store at
-  `~/Documents/context-harness/conversations` with the live browser/backend flow
-- Backend: Markdown import with light speaker-pattern matching after the API
-  contract is stable
+- Implementation checkpoint: add basic Markdown import with light
+  speaker-pattern matching
+- Keep the import path backend-owned; imported Markdown should become canonical
+  message files and refresh `exports/current.md`
 
 ## Active documents
 - `project-memory/frontend-architecture.md` — canonical frontend reference for
