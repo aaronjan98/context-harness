@@ -30,6 +30,12 @@ class AppendMessageRequest(BaseModel):
     message_format: str | None = Field(default=None, min_length=1)
 
 
+class ImportMarkdownRequest(BaseModel):
+    """Payload for importing an external Markdown transcript."""
+
+    content: str = Field(min_length=1)
+
+
 class ConversationPathsResponse(BaseModel):
     """Filesystem paths exposed for local debugging and handoff."""
 
@@ -197,6 +203,21 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
                 content=payload.content,
                 message_format=payload.message_format or "markdown",
             )
+        except FileNotFoundError as error:
+            raise conversation_not_found(conversation_id) from error
+        return await get_active_thread(conversation_id)
+
+    @app.post(
+        "/api/conversations/{conversation_id}/imports/markdown",
+        response_model=ThreadResponse,
+    )
+    async def import_markdown(
+        conversation_id: str,
+        payload: ImportMarkdownRequest,
+    ) -> dict[str, object]:
+        """Import Markdown transcript content into the active thread."""
+        try:
+            store.import_markdown(conversation_id, payload.content)
         except FileNotFoundError as error:
             raise conversation_not_found(conversation_id) from error
         return await get_active_thread(conversation_id)

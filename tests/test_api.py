@@ -151,3 +151,38 @@ def test_append_message_returns_updated_thread_and_persists(client) -> None:
     assert [message["id"] for message in payload["messages"]] == ["m0001", "m0002"]
     assert payload["messages"][1]["parent_id"] == "m0001"
     assert payload["messages"][1]["content"] == "Each message is a file with frontmatter."
+
+
+def test_import_markdown_returns_updated_thread(client) -> None:
+    client.post("/api/conversations", json={"conversation_id": "api-import"})
+
+    response = client.post(
+        "/api/conversations/api-import/imports/markdown",
+        json={
+            "content": (
+                "## User\nCan this import web chat Markdown?\n\n"
+                "## ChatGPT\nYes, as canonical messages."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["conversation"]["root_message_id"] == "m0001"
+    assert payload["conversation"]["active_message_id"] == "m0002"
+    assert [message["role"] for message in payload["messages"]] == [
+        "user",
+        "assistant",
+    ]
+    assert payload["messages"][1]["agent"] == "chatgpt"
+    assert payload["messages"][1]["content"] == "Yes, as canonical messages."
+
+
+def test_import_markdown_missing_conversation_does_not_create_it(client, store) -> None:
+    response = client.post(
+        "/api/conversations/missing-import/imports/markdown",
+        json={"content": "User: Do not create this."},
+    )
+
+    assert response.status_code == 404
+    assert not store.conversation_dir("missing-import").exists()

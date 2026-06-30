@@ -27,21 +27,23 @@ checklist under `project-memory/phase-1-mvp.md`.
 - [x] Verify text input submission flow against the real backend
 - [x] Add conversation rename and delete lifecycle controls
 - [x] Prevent implicit conversation creation on stale read routes
-- [ ] Add basic Markdown import with light speaker-pattern matching
+- [x] Add basic Markdown import with light speaker-pattern matching
 
 ## Current checkpoint
 The backend can now append canonical message nodes, read the active thread,
 regenerate the current Markdown export, list conversations, rename
-conversations, delete conversations, and expose typed response models through
-OpenAPI. API integration tests cover the current Phase 1 contract.
+conversations, delete conversations, import Markdown transcripts, and expose
+typed response models through OpenAPI. API integration tests cover the current
+Phase 1 contract.
 
 The real browser/backend loop has been manually verified: empty state, explicit
 conversation creation from the sidebar, message submission, sidebar auto-title
 refresh, rename, delete, stale-route recovery, and storage under
 `~/Documents/context-harness/conversations`.
 
-The next checkpoint is basic Markdown import with light speaker-pattern
-matching.
+Markdown import exists because Context Forge must be able to take a transcript
+from a web chatbot, copied agent output, or Markdown file and convert it into
+canonical message files that future agents can continue from.
 
 Phase 1 should keep local capability work out of scope beyond preserving the
 backend as the only authority that will eventually mediate configured files,

@@ -21,7 +21,8 @@ canonical conversation store that:
 - Backend conversation foundation is implemented and tested
 - Frontend scaffold is in place: React + Vite + TypeScript, API-backed sidebar
   and thread lifecycle controls are implemented and verified
-- Phase 1 backend Markdown import is the active focus
+- Phase 1 Markdown import backend/API is implemented; browser import UX and
+  first assistant adapter boundary are not yet implemented
 
 ## Working model
 - One conversation folder is the durable unit
@@ -32,7 +33,9 @@ canonical conversation store that:
 
 ## Current priorities
 - Keep backend behavior robust while preserving future branch/graph expansion
-- Finish the remaining Phase 1 backend work, especially Markdown import
+- Verify Markdown import against real copied transcripts
+- Decide whether the next checkpoint is browser import UX or a mock assistant
+  adapter boundary
 - Keep the default canonical conversation store under
   `~/Documents/context-harness/conversations`
 - Keep `MEMORY.md` and `project-memory/` current so future agents know the
@@ -61,14 +64,18 @@ Implemented and tested:
 - Active-thread reconstruction from message parent links
 - `exports/current.md` regeneration after writes
 - Phase 1 API contract for list/create/get/rename/delete/thread/append
+- Markdown import API for heading-based transcripts, `Speaker:` transcripts,
+  and paragraph fallback
 - Browser lifecycle verified against the real backend: empty state, explicit
   create, message submit, auto-title refresh, rename, delete, stale-route
   recovery, and Documents-backed storage
 - Generated frontend OpenAPI TypeScript schema
 - Backend unit tests and API integration tests
 
-Still pending on the backend for Phase 1:
-- Markdown import with light speaker-pattern matching
+Still pending for Phase 1:
+- Browser UX for importing pasted/copied Markdown transcripts
+- First assistant adapter boundary, likely mock/local before provider-specific
+  integration
 - Any additional robustness improvements needed to support the user-built UI
 
 ## Environment

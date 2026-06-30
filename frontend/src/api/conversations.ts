@@ -22,6 +22,8 @@ export type CreateConversationRequest =
   components['schemas']['CreateConversationRequest']
 export type AppendMessageRequest =
   components['schemas']['AppendMessageRequest']
+export type ImportMarkdownRequest =
+  components['schemas']['ImportMarkdownRequest']
 
 export class ApiError extends Error {
   constructor(
@@ -89,6 +91,21 @@ export async function appendMessage(
 ) {
   const { data, error, response } = await api.POST(
     '/api/conversations/{conversation_id}/messages',
+    {
+      params: { path: { conversation_id: conversationId } },
+      body,
+    },
+  )
+  if (error) throw toApiError(error, response)
+  return data
+}
+
+export async function importMarkdown(
+  conversationId: string,
+  body: ImportMarkdownRequest,
+) {
+  const { data, error, response } = await api.POST(
+    '/api/conversations/{conversation_id}/imports/markdown',
     {
       params: { path: { conversation_id: conversationId } },
       body,

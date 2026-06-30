@@ -32,9 +32,12 @@ Completed:
 - live browser/backend lifecycle verified: empty state, explicit create,
   message submit, auto-title refresh, rename, delete, stale-route recovery, and
   Documents-backed storage
+- backend Markdown import implemented for heading-based transcripts,
+  `Speaker:` transcripts, and paragraph fallback
 
 Current focus:
-- remaining Phase 1 backend feature: Markdown import
+- decide whether the next Phase 1 checkpoint is a small import UI or a mock
+  assistant adapter boundary
 - keep canonical conversation storage under
   `~/Documents/context-harness/conversations`
 - backend robustness to support the live frontend
@@ -59,10 +62,9 @@ Explicit boundary:
   configured backend capabilities, not browser powers
 
 ## Next steps
-- Implementation checkpoint: add basic Markdown import with light
-  speaker-pattern matching
-- Keep the import path backend-owned; imported Markdown should become canonical
-  message files and refresh `exports/current.md`
+- Verify Markdown import against a real copied transcript.
+- Choose the next checkpoint: a small browser import surface, or a mock
+  assistant adapter that proves the in-app AI reply loop.
 
 ## Active documents
 - `project-memory/frontend-architecture.md` — canonical frontend reference for

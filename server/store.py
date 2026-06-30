@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+import re
 import shutil
 from typing import Any
 
@@ -48,10 +49,36 @@ class MessageRecord:
     content: str
 
 
+@dataclass(slots=True)
+class ImportedMessage:
+    """One message parsed from an external Markdown transcript."""
+
+    role: str
+    agent: str
+    content: str
+
+
 class ConversationStore:
     """Owns canonical conversation folder layout on disk."""
 
     placeholder_title = "New conversation"
+    imported_speaker_labels = {
+        "ai",
+        "assistant",
+        "bot",
+        "chatgpt",
+        "claude",
+        "codex",
+        "gemini",
+        "gpt",
+        "grok",
+        "human",
+        "me",
+        "model",
+        "perplexity",
+        "user",
+        "you",
+    }
 
     def __init__(self, base_dir: Path | None = None) -> None:
         self.base_dir = (
@@ -210,6 +237,78 @@ class ConversationStore:
         self.write_current_export(paths, self.active_thread(conversation_id))
         return record
 
+    def import_markdown(self, conversation_id: str, content: str) -> list[MessageRecord]:
+        """Import a Markdown transcript as canonical messages."""
+        imported_messages = self.parse_markdown_import(content)
+        records: list[MessageRecord] = []
+        for message in imported_messages:
+            records.append(
+                self.append_message(
+                    conversation_id,
+                    role=message.role,
+                    agent=message.agent,
+                    content=message.content,
+                )
+            )
+        return records
+
+    def parse_markdown_import(self, content: str) -> list[ImportedMessage]:
+        """Parse common Markdown transcript shapes into messages."""
+        heading_messages = self.parse_heading_transcript(content)
+        if heading_messages:
+            return heading_messages
+
+        prefixed_messages = self.parse_prefixed_transcript(content)
+        if prefixed_messages:
+            return prefixed_messages
+
+        return self.parse_paragraph_transcript(content)
+
+    def parse_heading_transcript(self, content: str) -> list[ImportedMessage]:
+        """Parse transcript blocks headed by Markdown speaker headings."""
+        messages: list[ImportedMessage] = []
+        current_speaker: str | None = None
+        current_lines: list[str] = []
+
+        for line in content.splitlines():
+            speaker = self.speaker_from_heading(line)
+            if speaker is not None:
+                self.add_imported_message(messages, current_speaker, current_lines)
+                current_speaker = speaker
+                current_lines = []
+                continue
+            current_lines.append(line)
+
+        self.add_imported_message(messages, current_speaker, current_lines)
+        return messages
+
+    def parse_prefixed_transcript(self, content: str) -> list[ImportedMessage]:
+        """Parse transcript blocks beginning with `Speaker:` lines."""
+        messages: list[ImportedMessage] = []
+        current_speaker: str | None = None
+        current_lines: list[str] = []
+
+        for line in content.splitlines():
+            speaker, first_line = self.split_speaker_prefix(line)
+            if speaker is not None:
+                self.add_imported_message(messages, current_speaker, current_lines)
+                current_speaker = speaker
+                current_lines = [first_line] if first_line else []
+                continue
+            current_lines.append(line)
+
+        self.add_imported_message(messages, current_speaker, current_lines)
+        return messages
+
+    def parse_paragraph_transcript(self, content: str) -> list[ImportedMessage]:
+        """Fallback: treat each non-empty paragraph as a user message."""
+        paragraphs = [block.strip() for block in re.split(r"\n\s*\n", content)]
+        return [
+            ImportedMessage(role="user", agent="human", content=paragraph)
+            for paragraph in paragraphs
+            if paragraph
+        ]
+
     def active_thread(self, conversation_id: str) -> list[MessageRecord]:
         """Return the active linear thread from root to active message."""
         metadata = self.load_conversation_metadata(conversation_id)
@@ -338,6 +437,57 @@ class ConversationStore:
             sections.append(f"## {speaker}\n{message.content}".strip())
         export_text = "\n\n".join(sections)
         (paths.exports / "current.md").write_text(export_text, encoding="utf-8")
+
+    def add_imported_message(
+        self,
+        messages: list[ImportedMessage],
+        speaker: str | None,
+        lines: list[str],
+    ) -> None:
+        """Append a parsed message when both speaker and content are present."""
+        if speaker is None:
+            return
+        content = "\n".join(lines).strip()
+        if not content:
+            return
+        role, agent = self.normalize_imported_speaker(speaker)
+        messages.append(ImportedMessage(role=role, agent=agent, content=content))
+
+    @staticmethod
+    def speaker_from_heading(line: str) -> str | None:
+        """Return speaker text from a simple Markdown heading, if present."""
+        match = re.match(r"^\s{0,3}#{1,6}\s+(.+?)\s*$", line)
+        if not match:
+            return None
+        speaker = match.group(1).strip().rstrip(":")
+        return speaker if ConversationStore.is_imported_speaker_label(speaker) else None
+
+    @staticmethod
+    def split_speaker_prefix(line: str) -> tuple[str | None, str]:
+        """Split `Speaker: content` transcript lines."""
+        match = re.match(r"^\s{0,3}([A-Za-z][A-Za-z0-9 _.-]{0,40}):\s*(.*)$", line)
+        if not match:
+            return None, line
+        speaker = match.group(1).strip()
+        if not ConversationStore.is_imported_speaker_label(speaker):
+            return None, line
+        return speaker, match.group(2).strip()
+
+    @classmethod
+    def is_imported_speaker_label(cls, speaker: str) -> bool:
+        """Return whether loose transcript text looks like a speaker label."""
+        normalized = speaker.strip().lower()
+        return normalized in cls.imported_speaker_labels
+
+    @staticmethod
+    def normalize_imported_speaker(speaker: str) -> tuple[str, str]:
+        """Map loose transcript speaker names onto role/agent metadata."""
+        normalized = speaker.strip().lower()
+        if normalized in {"user", "human", "me", "you"}:
+            return "user", "human"
+        if normalized in {"assistant", "ai", "bot", "model"}:
+            return "assistant", "imported"
+        return "assistant", normalized.replace(" ", "-")
 
     def should_autotitle(
         self, metadata: ConversationMetadata, conversation_id: str
