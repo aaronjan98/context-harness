@@ -348,6 +348,21 @@ textarea {
   padding: 3px;
 }
 
+.cf-settings-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--cf-text);
+}
+
+.cf-settings-checkbox input {
+  width: auto;
+}
+
+.cf-settings-checkbox span {
+  color: var(--cf-text);
+}
+
 .cf-export-menu {
   position: absolute;
   top: calc(100% + 6px);

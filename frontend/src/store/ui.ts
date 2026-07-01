@@ -35,6 +35,8 @@ interface UIState {
 
   editorMode: EditorMode
   setEditorMode: (mode: EditorMode) => void
+  latexSuiteEnabled: boolean
+  setLatexSuiteEnabled: (enabled: boolean) => void
   cursorColor: string
   setCursorColor: (color: string) => void
   latexSuitePath: string
@@ -64,6 +66,8 @@ export const useUIStore = create<UIState>()(
 
       editorMode: 'vim',
       setEditorMode: (mode) => set({ editorMode: mode }),
+      latexSuiteEnabled: true,
+      setLatexSuiteEnabled: (enabled) => set({ latexSuiteEnabled: enabled }),
       cursorColor: '#ff2800',
       setCursorColor: (color) => set({ cursorColor: color }),
       latexSuitePath:
@@ -74,6 +78,7 @@ export const useUIStore = create<UIState>()(
       name: 'context-forge-ui-settings',
       partialize: (state) => ({
         editorMode: state.editorMode,
+        latexSuiteEnabled: state.latexSuiteEnabled,
         cursorColor: state.cursorColor,
         latexSuitePath: state.latexSuitePath,
       }),

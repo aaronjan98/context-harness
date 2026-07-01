@@ -92,9 +92,13 @@ export function latexSuiteAutosnippets() {
 
     const line = update.state.doc.lineAt(cursor)
     const prefix = update.state.doc.sliceString(line.from, cursor)
-    const mathMode = isLikelyMathMode(update.state.doc.sliceString(0, cursor))
-    const match = candidates.find((shortcut) => {
-      if (!prefix.endsWith(shortcut.trigger)) return false
+    const triggerMatches = candidates.filter((shortcut) =>
+      prefix.endsWith(shortcut.trigger),
+    )
+    if (triggerMatches.length === 0) return
+
+    const mathMode = isLikelyMathMode(prefix)
+    const match = triggerMatches.find((shortcut) => {
       if (shortcut.options.includes('m')) return mathMode
       if (shortcut.options.includes('t')) return !mathMode
       return true

@@ -5,6 +5,8 @@ import type { EditorMode } from '@/store/ui'
 export function SettingsPage() {
   const editorMode = useUIStore((state) => state.editorMode)
   const setEditorMode = useUIStore((state) => state.setEditorMode)
+  const latexSuiteEnabled = useUIStore((state) => state.latexSuiteEnabled)
+  const setLatexSuiteEnabled = useUIStore((state) => state.setLatexSuiteEnabled)
   const cursorColor = useUIStore((state) => state.cursorColor)
   const setCursorColor = useUIStore((state) => state.setCursorColor)
   const latexSuitePath = useUIStore((state) => state.latexSuitePath)
@@ -48,6 +50,18 @@ export function SettingsPage() {
               onChange={(event) => setCursorColor(event.target.value)}
             />
           </div>
+        </label>
+        <label className="cf-settings-field">
+          <span>LaTeX Suite</span>
+          <label className="cf-settings-checkbox">
+            <input
+              type="checkbox"
+              checked={latexSuiteEnabled}
+              onChange={(event) => setLatexSuiteEnabled(event.target.checked)}
+              disabled={editorMode !== 'vim'}
+            />
+            <span>Enable autosnippets in Vim mode</span>
+          </label>
         </label>
       </section>
 

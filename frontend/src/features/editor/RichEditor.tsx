@@ -21,6 +21,7 @@ import { latexSuiteAutosnippets } from './latexSuiteShortcuts'
 const editableCompartment = new Compartment()
 const placeholderCompartment = new Compartment()
 const vimCompartment = new Compartment()
+const latexSuiteCompartment = new Compartment()
 const cursorThemeCompartment = new Compartment()
 type VimCodeMirror = Parameters<typeof Vim.exitInsertMode>[0]
 
@@ -37,7 +38,9 @@ export function RichEditor({
   const onChangeRef = useRef(onChange)
   const onSubmitRef = useRef(onSubmit)
   const editorMode = useUIStore((state) => state.editorMode)
+  const latexSuiteEnabled = useUIStore((state) => state.latexSuiteEnabled)
   const cursorColor = useUIStore((state) => state.cursorColor)
+  const editorModeRef = useRef(editorMode)
 
   useEffect(() => {
     onChangeRef.current = onChange
@@ -48,18 +51,13 @@ export function RichEditor({
   }, [onSubmit])
 
   useEffect(() => {
+    editorModeRef.current = editorMode
+  }, [editorMode])
+
+  useEffect(() => {
     if (!hostRef.current || viewRef.current) return
 
     const editorKeymap = Prec.highest(keymap.of([
-      {
-        key: 'Escape',
-        run: (editorView) => {
-          const cm = getCM(editorView)
-          if (!cm?.state.vim) return false
-          Vim.exitInsertMode(cm as VimCodeMirror)
-          return true
-        },
-      },
       {
         key: 'Ctrl-Enter',
         mac: 'Mod-Enter',
@@ -82,7 +80,11 @@ export function RichEditor({
           bracketMatching(),
           closeBrackets(),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-          latexSuiteAutosnippets(),
+          latexSuiteCompartment.of(
+            editorMode === 'vim' && latexSuiteEnabled
+              ? latexSuiteAutosnippets()
+              : [],
+          ),
           editorKeymap,
           keymap.of([
             ...historyKeymap,
@@ -100,6 +102,20 @@ export function RichEditor({
             ),
           ),
           cursorThemeCompartment.of(cursorTheme(cursorColor)),
+          EditorView.domEventHandlers({
+            keydown: (event, editorView) => {
+              if (event.key !== 'Escape') return false
+              if (editorModeRef.current !== 'vim') return false
+              const cm = getCM(editorView)
+              if (!cm?.state.vim) return false
+
+              event.preventDefault()
+              event.stopPropagation()
+              Vim.exitInsertMode(cm as VimCodeMirror)
+              editorView.focus()
+              return true
+            },
+          }),
           EditorView.lineWrapping,
           EditorView.updateListener.of((update) => {
             if (!update.docChanged) return
@@ -129,6 +145,18 @@ export function RichEditor({
       ),
     })
   }, [editorMode])
+
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    view.dispatch({
+      effects: latexSuiteCompartment.reconfigure(
+        editorMode === 'vim' && latexSuiteEnabled
+          ? latexSuiteAutosnippets()
+          : [],
+      ),
+    })
+  }, [editorMode, latexSuiteEnabled])
 
   useEffect(() => {
     const view = viewRef.current
