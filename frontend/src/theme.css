@@ -520,6 +520,13 @@ textarea {
   margin-top: 12px;
 }
 
+.cf-imported-attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
 .cf-attachment-card {
   display: inline-flex;
   align-items: center;
@@ -531,6 +538,7 @@ textarea {
   color: var(--cf-text);
   cursor: pointer;
   padding: 9px 11px;
+  text-decoration: none;
   text-align: left;
 }
 
