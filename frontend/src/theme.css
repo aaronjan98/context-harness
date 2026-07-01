@@ -114,9 +114,13 @@ textarea {
 }
 
 .cf-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 2px 8px;
   font-size: 18px;
   line-height: 1;
+  text-decoration: none;
 }
 
 .cf-theme-toggle:hover,
@@ -267,6 +271,81 @@ textarea {
   background: transparent;
   cursor: pointer;
   padding: 0;
+}
+
+.cf-settings-page {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--cf-bg);
+  color: var(--cf-text);
+  padding: 28px;
+}
+
+.cf-settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.cf-settings-header h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.cf-settings-header p,
+.cf-settings-note {
+  color: var(--cf-muted);
+  line-height: 1.45;
+}
+
+.cf-settings-section {
+  max-width: 760px;
+  margin-bottom: 18px;
+  border: 1px solid var(--cf-border);
+  border-radius: 12px;
+  background: var(--cf-surface);
+  padding: 18px;
+}
+
+.cf-settings-section h2 {
+  margin: 0 0 14px;
+  font-size: 18px;
+}
+
+.cf-settings-field {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  margin: 12px 0;
+}
+
+.cf-settings-field span {
+  color: var(--cf-subtle);
+  font-size: 13px;
+}
+
+.cf-settings-field input,
+.cf-settings-field select {
+  width: 100%;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 8px;
+  background: var(--cf-bg);
+  color: var(--cf-text);
+  padding: 8px 10px;
+}
+
+.cf-settings-color-row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.cf-settings-color-row input[type="color"] {
+  min-height: 38px;
+  padding: 3px;
 }
 
 .cf-export-menu {

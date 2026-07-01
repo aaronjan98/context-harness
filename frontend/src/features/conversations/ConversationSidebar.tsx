@@ -120,6 +120,13 @@ export function ConversationSidebar() {
           >
             {theme === 'dark' ? 'Light' : 'Dark'}
           </button>
+          <Link
+            to="/settings"
+            title="Settings"
+            className="cf-icon-button cf-settings-link"
+          >
+            ⚙
+          </Link>
           <button
             type="button"
             onClick={() => startConversation()}

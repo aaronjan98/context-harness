@@ -14,11 +14,15 @@ import { bracketMatching, defaultHighlightStyle, syntaxHighlighting } from '@cod
 import { Compartment, EditorState, Prec } from '@codemirror/state'
 import { EditorView, drawSelection, keymap, lineNumbers, placeholder } from '@codemirror/view'
 import { getCM, Vim, vim } from '@replit/codemirror-vim'
+import { useUIStore } from '@/store/ui'
 import type { EditorProps } from './types'
 import { latexSuiteAutosnippets } from './latexSuiteShortcuts'
 
 const editableCompartment = new Compartment()
 const placeholderCompartment = new Compartment()
+const vimCompartment = new Compartment()
+const cursorThemeCompartment = new Compartment()
+type VimCodeMirror = Parameters<typeof Vim.exitInsertMode>[0]
 
 export function RichEditor({
   value,
@@ -32,6 +36,8 @@ export function RichEditor({
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
   const onSubmitRef = useRef(onSubmit)
+  const editorMode = useUIStore((state) => state.editorMode)
+  const cursorColor = useUIStore((state) => state.cursorColor)
 
   useEffect(() => {
     onChangeRef.current = onChange
@@ -49,8 +55,9 @@ export function RichEditor({
         key: 'Escape',
         run: (editorView) => {
           const cm = getCM(editorView)
-          if (!cm) return false
-          return Vim.handleKey(cm, '<Esc>', 'keyboard') ?? true
+          if (!cm?.state.vim) return false
+          Vim.exitInsertMode(cm as VimCodeMirror)
+          return true
         },
       },
       {
@@ -67,7 +74,7 @@ export function RichEditor({
       state: EditorState.create({
         doc: value,
         extensions: [
-          Prec.highest(vim()),
+          vimCompartment.of(editorMode === 'vim' ? Prec.highest(vim()) : []),
           lineNumbers(),
           drawSelection(),
           history(),
@@ -92,6 +99,7 @@ export function RichEditor({
                 'Message... (Vim mode, Ctrl+Enter to send, latex-suite autosnippets enabled)',
             ),
           ),
+          cursorThemeCompartment.of(cursorTheme(cursorColor)),
           EditorView.lineWrapping,
           EditorView.updateListener.of((update) => {
             if (!update.docChanged) return
@@ -111,6 +119,24 @@ export function RichEditor({
     // The editor instance owns its internal state; prop sync happens below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    view.dispatch({
+      effects: vimCompartment.reconfigure(
+        editorMode === 'vim' ? Prec.highest(vim()) : [],
+      ),
+    })
+  }, [editorMode])
+
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    view.dispatch({
+      effects: cursorThemeCompartment.reconfigure(cursorTheme(cursorColor)),
+    })
+  }, [cursorColor])
 
   useEffect(() => {
     const view = viewRef.current
@@ -154,4 +180,24 @@ export function RichEditor({
       }`}
     />
   )
+}
+
+function cursorTheme(color: string) {
+  return EditorView.theme({
+    '.cm-cursor': {
+      borderLeftColor: color,
+      borderLeftWidth: '2px',
+    },
+    '.cm-fat-cursor': {
+      background: color,
+      color: 'var(--cf-bg)',
+    },
+    '.cm-focused .cm-fat-cursor': {
+      background: color,
+      outline: 'none',
+    },
+    '&:not(.cm-focused) .cm-fat-cursor': {
+      outlineColor: color,
+    },
+  })
 }

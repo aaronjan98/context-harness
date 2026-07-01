@@ -25,6 +25,7 @@ import { z } from 'zod'
 import { Shell } from './shell'
 import { ConversationsPage } from '@/features/conversations/ConversationsPage'
 import { ThreadView } from '@/features/thread/ThreadView'
+import { SettingsPage } from '@/features/settings/SettingsPage'
 
 // ── Root ─────────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,12 @@ export const conversationsRoute = createRoute({
   component: ConversationsPage,
 })
 
+export const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings',
+  component: SettingsPage,
+})
+
 // ── Active conversation ───────────────────────────────────────────────────────
 
 // Search param schema: the only valid panel value is 'graph'.
@@ -73,6 +80,7 @@ export const conversationRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   conversationsRoute,
+  settingsRoute,
   conversationRoute,
 ])
 
