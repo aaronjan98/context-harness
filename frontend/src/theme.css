@@ -1226,9 +1226,23 @@ textarea {
   color: var(--cf-bg);
 }
 
+.dark .cf-rich-editor .cm-fat-cursor {
+  color: #050505 !important;
+}
+
 .cf-rich-editor .cm-focused .cm-fat-cursor {
   background: #ff2800;
   outline: none;
+}
+
+.dark .cf-rich-editor .cm-focused .cm-fat-cursor {
+  background: #ff2800;
+  color: #050505 !important;
+  animation: cf-vim-block-cursor-blink 1.1s steps(1, end) infinite;
+}
+
+.dark .cf-rich-editor .cm-focused > .cm-scroller > .cm-vimCursorLayer {
+  animation: none !important;
 }
 
 .cf-rich-editor:not(.cm-focused) .cm-fat-cursor,
@@ -1239,6 +1253,19 @@ textarea {
 .cf-rich-editor .cm-selectionBackground,
 .cf-rich-editor .cm-focused .cm-selectionBackground {
   background: color-mix(in srgb, var(--cf-accent) 24%, transparent);
+}
+
+.dark .cf-rich-editor .cm-selectionBackground,
+.dark .cf-rich-editor .cm-focused .cm-selectionBackground {
+  background: rgba(255, 40, 0, 0.34) !important;
+}
+
+.dark .cf-rich-editor .cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {
+  background: rgba(255, 40, 0, 0.34) !important;
+}
+
+.dark .cf-rich-editor .cm-selectionMatch {
+  background: rgba(255, 40, 0, 0.22);
 }
 
 .cf-rich-editor .cm-activeLine {
@@ -1265,6 +1292,45 @@ textarea {
 .cf-rich-editor .cm-tooltip-autocomplete ul li[aria-selected] {
   background: color-mix(in srgb, var(--cf-accent) 28%, transparent);
   color: var(--cf-text);
+}
+
+.dark .cf-rich-editor .cm-vim-panel,
+.dark .cf-rich-editor .cm-panels {
+  border-color: var(--cf-border);
+  background: #080b14;
+  color: var(--cf-text);
+}
+
+.dark .cf-rich-editor .cm-vim-panel {
+  border-top: 1px solid var(--cf-border);
+  box-shadow: inset 0 1px 0 rgba(255, 40, 0, 0.28);
+}
+
+.dark .cf-rich-editor .cm-vim-panel input {
+  background: transparent;
+  color: var(--cf-text);
+  caret-color: #ff2800;
+}
+
+.dark .cf-rich-editor .cm-vim-panel input::selection {
+  background: rgba(255, 40, 0, 0.45);
+  color: #050505;
+}
+
+.dark .cf-rich-editor .cm-vim-message {
+  color: #ff6b4a;
+}
+
+@keyframes cf-vim-block-cursor-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+
+  50%,
+  100% {
+    opacity: 0;
+  }
 }
 
 .cf-rich-editor-modal {
