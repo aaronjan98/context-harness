@@ -28,6 +28,7 @@ export function RichEditor({
   value,
   onChange,
   onSubmit,
+  onExpand,
   disabled = false,
   placeholder: placeholderText,
   variant = 'composer',
@@ -36,6 +37,7 @@ export function RichEditor({
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
   const onSubmitRef = useRef(onSubmit)
+  const onExpandRef = useRef(onExpand)
   const latexSuiteEnabled = useSettingsStore((state) => state.latexSuiteEnabled)
   const cursorColor = useSettingsStore((state) => state.cursorColor)
 
@@ -46,6 +48,10 @@ export function RichEditor({
   useEffect(() => {
     onSubmitRef.current = onSubmit
   }, [onSubmit])
+
+  useEffect(() => {
+    onExpandRef.current = onExpand
+  }, [onExpand])
 
   useEffect(() => {
     if (!hostRef.current || viewRef.current) return
@@ -67,6 +73,10 @@ export function RichEditor({
         (event.ctrlKey &&
           (event.key === '[' || event.code === 'BracketLeft' || event.keyCode === 219))
       )
+    }
+
+    function isExpandEditorEvent(event: KeyboardEvent) {
+      return event.ctrlKey && event.key.toLowerCase() === 'g'
     }
 
     function debugVimEscape(source: string, event: KeyboardEvent) {
@@ -102,7 +112,33 @@ export function RichEditor({
       return true
     }
 
+    function handleExpandEditorEvent(event: KeyboardEvent) {
+      if (
+        variant !== 'composer' ||
+        !onExpandRef.current ||
+        !isExpandEditorEvent(event)
+      ) {
+        return false
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+      onExpandRef.current()
+      return true
+    }
+
     const editorKeymap = Prec.highest(keymap.of([
+      {
+        key: 'Ctrl-G',
+        preventDefault: variant === 'composer',
+        stopPropagation: variant === 'composer',
+        run: () => {
+          if (variant !== 'composer' || !onExpandRef.current) return false
+          onExpandRef.current()
+          return true
+        },
+      },
       {
         key: 'Escape',
         preventDefault: true,
@@ -185,6 +221,7 @@ export function RichEditor({
     let lastPointerDownAt = 0
 
     const captureVimEscape = (event: KeyboardEvent) => {
+      if (handleExpandEditorEvent(event)) return
       handleVimEscapeEvent('content-dom-capture', event)
     }
 
@@ -196,6 +233,7 @@ export function RichEditor({
 
       debugVimEscape('window-capture', event)
       if (!editorHasFocus) return
+      if (handleExpandEditorEvent(event)) return
       handleVimEscapeEvent('window-capture-active-editor', event)
     }
 

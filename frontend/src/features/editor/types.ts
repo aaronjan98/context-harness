@@ -30,6 +30,9 @@ export interface EditorProps {
   /** Optional placeholder text for editor implementations that support it. */
   placeholder?: string
 
+  /** Optional request to open this editor value in a larger modal surface. */
+  onExpand?: () => void
+
   /** Layout variant for shared editor surfaces. */
   variant?: 'composer' | 'modal'
 }

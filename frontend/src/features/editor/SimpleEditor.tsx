@@ -16,11 +16,18 @@ export function SimpleEditor({
   value,
   onChange,
   onSubmit,
+  onExpand,
   disabled,
   placeholder,
   variant = 'composer',
 }: EditorProps) {
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (variant === 'composer' && e.key.toLowerCase() === 'g' && e.ctrlKey && onExpand) {
+      e.preventDefault()
+      onExpand()
+      return
+    }
+
     // Enter submits; Shift+Enter keeps multiline editing available.
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()

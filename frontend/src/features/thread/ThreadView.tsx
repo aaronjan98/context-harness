@@ -109,6 +109,7 @@ function EditorTray({
   onUploadFiles,
   onSend,
 }: EditorTrayProps) {
+  const [isComposerExpanded, setIsComposerExpanded] = useState(false)
   const draft = useUIStore(
     (state) => state.draftsByConversationId[conversationId] ?? '',
   )
@@ -124,6 +125,7 @@ function EditorTray({
       content: content || 'Attached file(s).',
       attachmentIds,
     })
+    setIsComposerExpanded(false)
   }
 
   return (
@@ -175,8 +177,55 @@ function EditorTray({
         value={draft}
         onChange={(value) => setDraft(conversationId, value)}
         onSubmit={handleSubmit}
+        onExpand={() => setIsComposerExpanded(true)}
         disabled={isSending || isUploadingAttachment}
       />
+      {isComposerExpanded && (
+        <div className="cf-attachment-overlay" role="dialog" aria-modal="true">
+          <div className="cf-message-edit-modal">
+            <div className="cf-attachment-modal-header">
+              <div>
+                <div className="cf-attachment-modal-title">
+                  Compose message
+                </div>
+                <div className="cf-attachment-modal-meta">
+                  Draft for this conversation
+                </div>
+              </div>
+              <div className="cf-attachment-modal-actions">
+                <button
+                  type="button"
+                  className="cf-secondary-button"
+                  onClick={() => setIsComposerExpanded(false)}
+                  disabled={isSending}
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  className="cf-primary-button"
+                  onClick={handleSubmit}
+                  disabled={
+                    (!draft.trim() && pendingAttachments.length === 0) ||
+                    isSending ||
+                    isUploadingAttachment
+                  }
+                >
+                  {isSending ? 'Sending...' : 'Send'}
+                </button>
+              </div>
+            </div>
+            <Editor
+              value={draft}
+              onChange={(value) => setDraft(conversationId, value)}
+              onSubmit={handleSubmit}
+              disabled={isSending || isUploadingAttachment}
+              placeholder="Compose message Markdown... (Vim mode, Ctrl+Enter to send)"
+              variant="modal"
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

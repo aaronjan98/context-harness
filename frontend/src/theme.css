@@ -1048,7 +1048,7 @@ textarea {
 .cf-attachment-overlay {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1189,6 +1189,7 @@ textarea {
 }
 
 .cf-rich-editor .cm-editor {
+  height: 138px;
   min-height: 138px;
   background: var(--cf-surface);
   color: var(--cf-text);
@@ -1202,12 +1203,24 @@ textarea {
 }
 
 .cf-rich-editor .cm-content {
+  min-height: 100%;
   padding: 8px;
 }
 
 .cf-rich-editor .cm-lineNumbers {
   color: var(--cf-subtle);
   background: var(--cf-surface-muted);
+}
+
+.cf-rich-editor .cm-lineNumbers::after {
+  display: block;
+  padding: 0 3px 0 5px;
+  color: var(--cf-subtle);
+  content: "~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~";
+  opacity: 0.65;
+  pointer-events: none;
+  text-align: right;
+  white-space: pre;
 }
 
 .cf-rich-editor .cm-gutters {
@@ -1342,4 +1355,8 @@ textarea {
 .cf-rich-editor-modal .cm-editor {
   height: 100%;
   min-height: 0;
+}
+
+.cf-rich-editor-modal .cm-lineNumbers::after {
+  content: "~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~\A~";
 }
