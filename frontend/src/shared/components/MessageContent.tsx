@@ -17,10 +17,39 @@
  * (Two distinct LaTeX concerns) for the rationale behind this split.
  */
 
-import ReactMarkdown from 'react-markdown'
+import { useState, type ComponentPropsWithoutRef } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
+import hljs from 'highlight.js/lib/core'
+import bash from 'highlight.js/lib/languages/bash'
+import css from 'highlight.js/lib/languages/css'
+import diff from 'highlight.js/lib/languages/diff'
+import dos from 'highlight.js/lib/languages/dos'
+import javascript from 'highlight.js/lib/languages/javascript'
+import json from 'highlight.js/lib/languages/json'
+import markdown from 'highlight.js/lib/languages/markdown'
+import powershell from 'highlight.js/lib/languages/powershell'
+import python from 'highlight.js/lib/languages/python'
+import sql from 'highlight.js/lib/languages/sql'
+import typescript from 'highlight.js/lib/languages/typescript'
+import xml from 'highlight.js/lib/languages/xml'
+import yaml from 'highlight.js/lib/languages/yaml'
+
+hljs.registerLanguage('bash', bash)
+hljs.registerLanguage('css', css)
+hljs.registerLanguage('diff', diff)
+hljs.registerLanguage('dos', dos)
+hljs.registerLanguage('javascript', javascript)
+hljs.registerLanguage('json', json)
+hljs.registerLanguage('markdown', markdown)
+hljs.registerLanguage('powershell', powershell)
+hljs.registerLanguage('python', python)
+hljs.registerLanguage('sql', sql)
+hljs.registerLanguage('typescript', typescript)
+hljs.registerLanguage('xml', xml)
+hljs.registerLanguage('yaml', yaml)
 
 interface MessageContentProps {
   content: string
@@ -29,6 +58,114 @@ interface MessageContentProps {
 interface ImportedAttachment {
   label: string
   href?: string
+}
+
+type MarkdownCodeProps = ComponentPropsWithoutRef<'code'> & {
+  node?: unknown
+}
+
+const languageAliases: Record<string, string> = {
+  cmd: 'dos',
+  html: 'xml',
+  js: 'javascript',
+  md: 'markdown',
+  ps1: 'powershell',
+  py: 'python',
+  shell: 'bash',
+  sh: 'bash',
+  ts: 'typescript',
+  yml: 'yaml',
+  zsh: 'bash',
+}
+
+function normalizeLanguage(language: string) {
+  const normalized = language.toLowerCase()
+  return languageAliases[normalized] ?? normalized
+}
+
+function displayLanguage(language: string) {
+  if (language === 'dos') return 'CMD'
+  if (language === 'xml') return 'HTML/XML'
+  return language.toUpperCase()
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+function highlightCode(code: string, language: string) {
+  if (!language || !hljs.getLanguage(language)) {
+    return escapeHtml(code)
+  }
+
+  try {
+    return hljs.highlight(code, { language, ignoreIllegals: true }).value
+  } catch {
+    return escapeHtml(code)
+  }
+}
+
+function MarkdownCode({
+  className,
+  children,
+  node: _node,
+  ...props
+}: MarkdownCodeProps) {
+  const [copied, setCopied] = useState(false)
+  const rawCode = String(children ?? '').replace(/\n$/, '')
+  const match = /language-([^\s]+)/.exec(className ?? '')
+
+  if (!match) {
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    )
+  }
+
+  const language = normalizeLanguage(match[1])
+  const highlighted = highlightCode(rawCode, language)
+
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(rawCode)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1400)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <div className="cf-code-block">
+      <div className="cf-code-header">
+        <span className="cf-code-language">{displayLanguage(language)}</span>
+        <button
+          type="button"
+          className="cf-code-copy"
+          onClick={copyCode}
+          aria-label={`Copy ${displayLanguage(language)} code`}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <pre className="cf-code-pre">
+        <code
+          className={`hljs language-${language}`}
+          dangerouslySetInnerHTML={{ __html: highlighted }}
+        />
+      </pre>
+    </div>
+  )
+}
+
+const markdownComponents: Components = {
+  code: MarkdownCode as Components['code'],
 }
 
 function parseImportedAttachments(block: string): ImportedAttachment[] {
@@ -126,6 +263,7 @@ export function MessageContent({ content }: MessageContentProps) {
             key={index}
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[rehypeKatex]}
+            components={markdownComponents}
           >
             {part.content}
           </ReactMarkdown>
