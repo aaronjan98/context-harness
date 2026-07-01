@@ -20,9 +20,6 @@
  */
 
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
-
-export type EditorMode = 'plain' | 'vim'
 
 interface UIState {
   // Graph → Thread communication: clicking a graph node scrolls the thread
@@ -32,56 +29,24 @@ interface UIState {
   draftsByConversationId: Record<string, string>
   setDraft: (conversationId: string, value: string) => void
   clearDraft: (conversationId: string) => void
-
-  editorMode: EditorMode
-  setEditorMode: (mode: EditorMode) => void
-  latexSuiteEnabled: boolean
-  setLatexSuiteEnabled: (enabled: boolean) => void
-  cursorColor: string
-  setCursorColor: (color: string) => void
-  latexSuitePath: string
-  setLatexSuitePath: (path: string) => void
 }
 
-export const useUIStore = create<UIState>()(
-  persist(
-    (set) => ({
-      focusedMessageId: null,
-      setFocusedMessageId: (id) => set({ focusedMessageId: id }),
+export const useUIStore = create<UIState>((set) => ({
+  focusedMessageId: null,
+  setFocusedMessageId: (id) => set({ focusedMessageId: id }),
 
-      draftsByConversationId: {},
-      setDraft: (conversationId, value) =>
-        set((state) => ({
-          draftsByConversationId: {
-            ...state.draftsByConversationId,
-            [conversationId]: value,
-          },
-        })),
-      clearDraft: (conversationId) =>
-        set((state) => {
-          const nextDrafts = { ...state.draftsByConversationId }
-          delete nextDrafts[conversationId]
-          return { draftsByConversationId: nextDrafts }
-        }),
-
-      editorMode: 'vim',
-      setEditorMode: (mode) => set({ editorMode: mode }),
-      latexSuiteEnabled: true,
-      setLatexSuiteEnabled: (enabled) => set({ latexSuiteEnabled: enabled }),
-      cursorColor: '#ff2800',
-      setCursorColor: (color) => set({ cursorColor: color }),
-      latexSuitePath:
-        '~/Repositories/self-hosted/zettelkasten/Documents/shortcuts.json',
-      setLatexSuitePath: (path) => set({ latexSuitePath: path }),
+  draftsByConversationId: {},
+  setDraft: (conversationId, value) =>
+    set((state) => ({
+      draftsByConversationId: {
+        ...state.draftsByConversationId,
+        [conversationId]: value,
+      },
+    })),
+  clearDraft: (conversationId) =>
+    set((state) => {
+      const nextDrafts = { ...state.draftsByConversationId }
+      delete nextDrafts[conversationId]
+      return { draftsByConversationId: nextDrafts }
     }),
-    {
-      name: 'context-forge-ui-settings',
-      partialize: (state) => ({
-        editorMode: state.editorMode,
-        latexSuiteEnabled: state.latexSuiteEnabled,
-        cursorColor: state.cursorColor,
-        latexSuitePath: state.latexSuitePath,
-      }),
-    },
-  ),
-)
+}))

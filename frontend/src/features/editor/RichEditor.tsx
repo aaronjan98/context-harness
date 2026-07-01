@@ -14,7 +14,7 @@ import { bracketMatching, defaultHighlightStyle, syntaxHighlighting } from '@cod
 import { Compartment, EditorState, Prec } from '@codemirror/state'
 import { EditorView, drawSelection, keymap, lineNumbers, placeholder } from '@codemirror/view'
 import { getCM, Vim, vim } from '@replit/codemirror-vim'
-import { useUIStore } from '@/store/ui'
+import { useSettingsStore } from '@/store/settings'
 import type { EditorProps } from './types'
 import { latexSuiteAutosnippets } from './latexSuiteShortcuts'
 
@@ -36,8 +36,8 @@ export function RichEditor({
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
   const onSubmitRef = useRef(onSubmit)
-  const latexSuiteEnabled = useUIStore((state) => state.latexSuiteEnabled)
-  const cursorColor = useUIStore((state) => state.cursorColor)
+  const latexSuiteEnabled = useSettingsStore((state) => state.latexSuiteEnabled)
+  const cursorColor = useSettingsStore((state) => state.cursorColor)
 
   useEffect(() => {
     onChangeRef.current = onChange

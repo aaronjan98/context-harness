@@ -1,16 +1,16 @@
 import { Link } from '@tanstack/react-router'
-import { useUIStore } from '@/store/ui'
-import type { EditorMode } from '@/store/ui'
+import { useSettingsStore } from '@/store/settings'
+import type { EditorMode } from '@/store/settings'
 
 export function SettingsPage() {
-  const editorMode = useUIStore((state) => state.editorMode)
-  const setEditorMode = useUIStore((state) => state.setEditorMode)
-  const latexSuiteEnabled = useUIStore((state) => state.latexSuiteEnabled)
-  const setLatexSuiteEnabled = useUIStore((state) => state.setLatexSuiteEnabled)
-  const cursorColor = useUIStore((state) => state.cursorColor)
-  const setCursorColor = useUIStore((state) => state.setCursorColor)
-  const latexSuitePath = useUIStore((state) => state.latexSuitePath)
-  const setLatexSuitePath = useUIStore((state) => state.setLatexSuitePath)
+  const editorMode = useSettingsStore((state) => state.editorMode)
+  const setEditorMode = useSettingsStore((state) => state.setEditorMode)
+  const latexSuiteEnabled = useSettingsStore((state) => state.latexSuiteEnabled)
+  const setLatexSuiteEnabled = useSettingsStore((state) => state.setLatexSuiteEnabled)
+  const cursorColor = useSettingsStore((state) => state.cursorColor)
+  const setCursorColor = useSettingsStore((state) => state.setCursorColor)
+  const latexSuitePath = useSettingsStore((state) => state.latexSuitePath)
+  const setLatexSuitePath = useSettingsStore((state) => state.setLatexSuitePath)
 
   return (
     <div className="cf-settings-page">
