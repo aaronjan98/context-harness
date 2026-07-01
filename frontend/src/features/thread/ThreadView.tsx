@@ -468,8 +468,24 @@ export function ThreadView() {
                 )}
                 <div
                   ref={(el) => { messageRefs.current[msg.id] = el }}
+                  role={isExportOpen ? 'button' : undefined}
+                  tabIndex={isExportOpen ? 0 : undefined}
+                  aria-pressed={
+                    isExportOpen ? selectedMessageIds.has(msg.id) : undefined
+                  }
+                  onClick={() => {
+                    if (isExportOpen) toggleMessageSelection(msg.id)
+                  }}
+                  onKeyDown={(event) => {
+                    if (!isExportOpen) return
+                    if (event.key !== 'Enter' && event.key !== ' ') return
+                    event.preventDefault()
+                    toggleMessageSelection(msg.id)
+                  }}
                   className={`cf-message ${
                     msg.role === 'user' ? 'cf-message-user' : 'cf-message-assistant'
+                  } ${
+                    isExportOpen ? 'cf-message-selectable' : ''
                   } ${
                     isExportOpen && selectedMessageIds.has(msg.id)
                       ? 'cf-message-selected'
@@ -487,7 +503,10 @@ export function ThreadView() {
                           key={attachment.id}
                           type="button"
                           className="cf-attachment-card"
-                          onClick={() => setPreviewAttachment(attachment)}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setPreviewAttachment(attachment)
+                          }}
                         >
                           <span className="cf-attachment-icon">
                             {attachmentKind(attachment) === 'image' ? 'IMG' : 'FILE'}
