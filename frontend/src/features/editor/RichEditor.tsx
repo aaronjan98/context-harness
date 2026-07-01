@@ -20,7 +20,6 @@ import { latexSuiteAutosnippets } from './latexSuiteShortcuts'
 
 const editableCompartment = new Compartment()
 const placeholderCompartment = new Compartment()
-const vimCompartment = new Compartment()
 const latexSuiteCompartment = new Compartment()
 const cursorThemeCompartment = new Compartment()
 type VimCodeMirror = Parameters<typeof Vim.exitInsertMode>[0]
@@ -37,10 +36,8 @@ export function RichEditor({
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
   const onSubmitRef = useRef(onSubmit)
-  const editorMode = useUIStore((state) => state.editorMode)
   const latexSuiteEnabled = useUIStore((state) => state.latexSuiteEnabled)
   const cursorColor = useUIStore((state) => state.cursorColor)
-  const editorModeRef = useRef(editorMode)
 
   useEffect(() => {
     onChangeRef.current = onChange
@@ -49,10 +46,6 @@ export function RichEditor({
   useEffect(() => {
     onSubmitRef.current = onSubmit
   }, [onSubmit])
-
-  useEffect(() => {
-    editorModeRef.current = editorMode
-  }, [editorMode])
 
   useEffect(() => {
     if (!hostRef.current || viewRef.current) return
@@ -72,7 +65,7 @@ export function RichEditor({
       state: EditorState.create({
         doc: value,
         extensions: [
-          vimCompartment.of(editorMode === 'vim' ? Prec.highest(vim()) : []),
+          Prec.highest(vim()),
           lineNumbers(),
           drawSelection(),
           history(),
@@ -81,9 +74,7 @@ export function RichEditor({
           closeBrackets(),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           latexSuiteCompartment.of(
-            editorMode === 'vim' && latexSuiteEnabled
-              ? latexSuiteAutosnippets()
-              : [],
+            latexSuiteEnabled ? latexSuiteAutosnippets() : [],
           ),
           editorKeymap,
           keymap.of([
@@ -105,7 +96,6 @@ export function RichEditor({
           EditorView.domEventHandlers({
             keydown: (event, editorView) => {
               if (event.key !== 'Escape') return false
-              if (editorModeRef.current !== 'vim') return false
               const cm = getCM(editorView)
               if (!cm?.state.vim) return false
 
@@ -140,23 +130,11 @@ export function RichEditor({
     const view = viewRef.current
     if (!view) return
     view.dispatch({
-      effects: vimCompartment.reconfigure(
-        editorMode === 'vim' ? Prec.highest(vim()) : [],
-      ),
-    })
-  }, [editorMode])
-
-  useEffect(() => {
-    const view = viewRef.current
-    if (!view) return
-    view.dispatch({
       effects: latexSuiteCompartment.reconfigure(
-        editorMode === 'vim' && latexSuiteEnabled
-          ? latexSuiteAutosnippets()
-          : [],
+        latexSuiteEnabled ? latexSuiteAutosnippets() : [],
       ),
     })
-  }, [editorMode, latexSuiteEnabled])
+  }, [latexSuiteEnabled])
 
   useEffect(() => {
     const view = viewRef.current

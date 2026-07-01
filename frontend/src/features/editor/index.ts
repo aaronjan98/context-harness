@@ -13,5 +13,5 @@
  * Nothing outside this file needs to change.
  */
 
-export { RichEditor as Editor } from './RichEditor'
+export { Editor } from './Editor'
 export type { EditorProps } from './types'
