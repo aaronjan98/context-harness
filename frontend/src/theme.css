@@ -547,6 +547,16 @@ textarea {
   box-shadow: var(--cf-glow);
 }
 
+.cf-attachment-card-unavailable {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.cf-attachment-card-unavailable:hover {
+  border-color: var(--cf-border);
+  box-shadow: none;
+}
+
 .cf-attachment-icon {
   display: inline-flex;
   align-items: center;

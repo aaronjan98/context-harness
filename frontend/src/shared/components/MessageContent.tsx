@@ -107,14 +107,14 @@ export function MessageContent({ content }: MessageContentProps) {
                     {body}
                   </a>
                 ) : (
-                  <button
+                  <div
                     key={attachment.label}
-                    type="button"
-                    className="cf-attachment-card"
-                    title="This imported transcript only included the attachment name. Upload the file to Context Forge to preview it."
+                    className="cf-attachment-card cf-attachment-card-unavailable"
+                    title="Reference only: this imported transcript included the attachment name, not the media file. Upload the file to Context Forge to preview it."
+                    aria-disabled="true"
                   >
                     {body}
-                  </button>
+                  </div>
                 )
               })}
             </div>
