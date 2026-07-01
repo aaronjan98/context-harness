@@ -12,7 +12,14 @@
 
 import type { EditorProps } from './types'
 
-export function SimpleEditor({ value, onChange, onSubmit, disabled }: EditorProps) {
+export function SimpleEditor({
+  value,
+  onChange,
+  onSubmit,
+  disabled,
+  placeholder,
+  variant = 'composer',
+}: EditorProps) {
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // Enter submits; Shift+Enter keeps multiline editing available.
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -43,9 +50,9 @@ export function SimpleEditor({ value, onChange, onSubmit, disabled }: EditorProp
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={handleKeyDown}
       disabled={disabled}
-      placeholder="Message... (Enter to send, Shift+Enter for newline)"
-      rows={4}
-      className="cf-editor"
+      placeholder={placeholder ?? 'Message... (Enter to send, Shift+Enter for newline)'}
+      rows={variant === 'modal' ? 18 : 4}
+      className={`cf-editor ${variant === 'modal' ? 'cf-editor-modal' : ''}`}
     />
   )
 }

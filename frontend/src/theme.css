@@ -1081,3 +1081,105 @@ textarea {
   cursor: not-allowed;
   opacity: 0.55;
 }
+
+.cf-rich-editor {
+  overflow: hidden;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 6px;
+  background: var(--cf-surface);
+}
+
+.cf-rich-editor:focus-within {
+  border-color: var(--cf-accent);
+  box-shadow: var(--cf-glow);
+}
+
+.cf-rich-editor .cm-editor {
+  min-height: 138px;
+  background: var(--cf-surface);
+  color: var(--cf-text);
+  font-family: monospace;
+  font-size: 14px;
+}
+
+.cf-rich-editor .cm-scroller {
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+.cf-rich-editor .cm-content {
+  padding: 8px;
+}
+
+.cf-rich-editor .cm-lineNumbers {
+  color: var(--cf-subtle);
+  background: var(--cf-surface-muted);
+}
+
+.cf-rich-editor .cm-gutters {
+  border-right: 1px solid var(--cf-border);
+  background: var(--cf-surface-muted);
+  color: var(--cf-subtle);
+}
+
+.cf-rich-editor .cm-cursor {
+  border-left-color: #ff2800;
+  border-left-width: 2px;
+}
+
+.cf-rich-editor .cm-fat-cursor {
+  background: #ff2800;
+  color: var(--cf-bg);
+}
+
+.cf-rich-editor .cm-focused .cm-fat-cursor {
+  background: #ff2800;
+  outline: none;
+}
+
+.cf-rich-editor:not(.cm-focused) .cm-fat-cursor,
+.cf-rich-editor .cm-editor:not(.cm-focused) .cm-fat-cursor {
+  outline-color: #ff2800;
+}
+
+.cf-rich-editor .cm-selectionBackground,
+.cf-rich-editor .cm-focused .cm-selectionBackground {
+  background: color-mix(in srgb, var(--cf-accent) 24%, transparent);
+}
+
+.cf-rich-editor .cm-activeLine {
+  background: color-mix(in srgb, var(--cf-surface-muted) 70%, transparent);
+}
+
+.cf-rich-editor .cm-activeLineGutter {
+  background: color-mix(in srgb, var(--cf-surface-muted) 85%, transparent);
+  color: var(--cf-text);
+}
+
+.cf-rich-editor .cm-placeholder {
+  color: var(--cf-subtle);
+}
+
+.cf-rich-editor .cm-tooltip {
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 8px;
+  background: var(--cf-surface);
+  color: var(--cf-text);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28);
+}
+
+.cf-rich-editor .cm-tooltip-autocomplete ul li[aria-selected] {
+  background: color-mix(in srgb, var(--cf-accent) 28%, transparent);
+  color: var(--cf-text);
+}
+
+.cf-rich-editor-modal {
+  flex: 1;
+  min-height: 0;
+  margin: 14px;
+}
+
+.cf-rich-editor-modal .cm-editor {
+  height: 100%;
+  min-height: 0;
+}

@@ -26,4 +26,10 @@ export interface EditorProps {
 
   /** Disables input while a message is being sent. */
   disabled?: boolean
+
+  /** Optional placeholder text for editor implementations that support it. */
+  placeholder?: string
+
+  /** Layout variant for shared editor surfaces. */
+  variant?: 'composer' | 'modal'
 }

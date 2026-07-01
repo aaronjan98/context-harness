@@ -758,15 +758,16 @@ export function ThreadView() {
                 </button>
               </div>
             </div>
-            <textarea
-              className="cf-message-edit-textarea cf-message-edit-textarea-modal"
+            <Editor
               value={editingContent}
-              onChange={(event) => {
-                setEditingContent(event.target.value)
+              onChange={(nextValue) => {
+                setEditingContent(nextValue)
                 setEditError(null)
               }}
+              onSubmit={() => submitMessageEdit(editingMessage.id)}
               disabled={isEditingMessage}
-              aria-label={`Edit content for message ${editingMessage.id}`}
+              placeholder="Edit message Markdown... (Vim mode, Ctrl+Enter to save)"
+              variant="modal"
             />
             {editError && (
               <div className="cf-import-error">{editError}</div>

@@ -1,25 +1,157 @@
 /**
- * RichEditor — Phase 2 editor implementation (STUB).
+ * RichEditor — CodeMirror editor with Vim bindings and latex-suite autosnippets.
  *
- * Will be implemented in Phase 2 using:
- *   - CodeMirror 6 (@codemirror/view, @codemirror/state, @codemirror/lang-markdown)
- *   - Vim bindings (@replit/codemirror-vim)
- *   - Inline LaTeX preview via KaTeX
- *
- * Keybinding: Ctrl+Enter submits in both insert and normal mode.
- *
- * To activate: change features/editor/index.ts to export RichEditor as Editor.
- * Nothing else in the app needs to change.
- *
- * See project-memory/frontend-architecture.md § Editor abstraction.
+ * This is the shared editor substrate for the composer and message edit modal.
+ * Segment-level inline editing should reuse this component later instead of
+ * building a separate editor path.
  */
 
+import { useEffect, useRef } from 'react'
+import { closeBrackets } from '@codemirror/autocomplete'
+import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { markdown } from '@codemirror/lang-markdown'
+import { bracketMatching, defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import { Compartment, EditorState, Prec } from '@codemirror/state'
+import { EditorView, drawSelection, keymap, lineNumbers, placeholder } from '@codemirror/view'
+import { getCM, Vim, vim } from '@replit/codemirror-vim'
 import type { EditorProps } from './types'
-import { SimpleEditor } from './SimpleEditor'
+import { latexSuiteAutosnippets } from './latexSuiteShortcuts'
 
-// Phase 2: replace this body with the CodeMirror implementation.
-// The component signature (EditorProps) must remain unchanged.
-export function RichEditor(props: EditorProps) {
-  // Fallback to SimpleEditor until Phase 2 is implemented.
-  return <SimpleEditor {...props} />
+const editableCompartment = new Compartment()
+const placeholderCompartment = new Compartment()
+
+export function RichEditor({
+  value,
+  onChange,
+  onSubmit,
+  disabled = false,
+  placeholder: placeholderText,
+  variant = 'composer',
+}: EditorProps) {
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  const viewRef = useRef<EditorView | null>(null)
+  const onChangeRef = useRef(onChange)
+  const onSubmitRef = useRef(onSubmit)
+
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
+
+  useEffect(() => {
+    onSubmitRef.current = onSubmit
+  }, [onSubmit])
+
+  useEffect(() => {
+    if (!hostRef.current || viewRef.current) return
+
+    const editorKeymap = Prec.highest(keymap.of([
+      {
+        key: 'Escape',
+        run: (editorView) => {
+          const cm = getCM(editorView)
+          if (!cm) return false
+          return Vim.handleKey(cm, '<Esc>', 'keyboard') ?? true
+        },
+      },
+      {
+        key: 'Ctrl-Enter',
+        mac: 'Mod-Enter',
+        run: () => {
+          onSubmitRef.current()
+          return true
+        },
+      },
+    ]))
+
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: value,
+        extensions: [
+          Prec.highest(vim()),
+          lineNumbers(),
+          drawSelection(),
+          history(),
+          markdown(),
+          bracketMatching(),
+          closeBrackets(),
+          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+          latexSuiteAutosnippets(),
+          editorKeymap,
+          keymap.of([
+            ...historyKeymap,
+            indentWithTab,
+            ...defaultKeymap,
+          ]),
+          editableCompartment.of([
+            EditorState.readOnly.of(disabled),
+            EditorView.editable.of(!disabled),
+          ]),
+          placeholderCompartment.of(
+            placeholder(
+              placeholderText ??
+                'Message... (Vim mode, Ctrl+Enter to send, latex-suite autosnippets enabled)',
+            ),
+          ),
+          EditorView.lineWrapping,
+          EditorView.updateListener.of((update) => {
+            if (!update.docChanged) return
+            onChangeRef.current(update.state.doc.toString())
+          }),
+        ],
+      }),
+      parent: hostRef.current,
+    })
+
+    viewRef.current = view
+    requestAnimationFrame(() => view.focus())
+    return () => {
+      view.destroy()
+      viewRef.current = null
+    }
+    // The editor instance owns its internal state; prop sync happens below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    const currentValue = view.state.doc.toString()
+    if (currentValue === value) return
+    view.dispatch({
+      changes: { from: 0, to: currentValue.length, insert: value },
+    })
+  }, [value])
+
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    view.dispatch({
+      effects: editableCompartment.reconfigure([
+        EditorState.readOnly.of(disabled),
+        EditorView.editable.of(!disabled),
+      ]),
+    })
+  }, [disabled])
+
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    view.dispatch({
+      effects: placeholderCompartment.reconfigure(
+        placeholder(
+          placeholderText ??
+            'Message... (Vim mode, Ctrl+Enter to send, latex-suite autosnippets enabled)',
+        ),
+      ),
+    })
+  }, [placeholderText])
+
+  return (
+    <div
+      ref={hostRef}
+      className={`cf-rich-editor ${
+        variant === 'modal' ? 'cf-rich-editor-modal' : ''
+      }`}
+    />
+  )
 }
