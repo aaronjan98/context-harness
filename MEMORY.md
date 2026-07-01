@@ -17,6 +17,8 @@ conversation foundation is now in place and tested.
 - `project-memory/storage-model.md` — canonical conversation structure and file
   layout
 - `project-memory/decisions.md` — durable accepted product decisions
+- `project-memory/learned-lessons.md` — first-person implementation lessons and
+  interview-ready project experience
 
 ## Current checkpoint
 Completed:
@@ -46,6 +48,10 @@ Current focus:
 - keep canonical conversation storage under
   `~/Documents/context-harness/conversations`
 - backend robustness to support the live frontend
+- preserve the confirmed editor-performance lesson: hot draft state must be
+  subscribed to only by the smallest editor component, not by `ThreadView`,
+  because broad Zustand subscriptions can re-render the whole message thread on
+  every keystroke
 
 Explicit boundary:
 - backend changes must preserve future support for branching, graph view, and
@@ -53,6 +59,9 @@ Explicit boundary:
 - browser UI must not receive raw filesystem or shell authority; future local
   capabilities are mediated by backend APIs
 - frontend feature slice discipline: features must not import from each other
+- do not make commits for speculative fixes; use WIP commits only when useful
+  for safe rollback, and commit confirmed fixes after the user has verified the
+  issue is actually resolved
 
 ## Working assumptions
 - Single-user local app

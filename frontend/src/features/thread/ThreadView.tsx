@@ -16,7 +16,14 @@
  * See project-memory/frontend-architecture.md § Layout and § State layers.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+} from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { Link, useNavigate } from '@tanstack/react-router'
@@ -79,6 +86,101 @@ function messagesToMarkdown(messages: Message[]): string {
   return messages.map(messageToMarkdown).join('\n\n')
 }
 
+interface EditorTrayProps {
+  conversationId: string
+  pendingAttachments: Attachment[]
+  setPendingAttachments: Dispatch<SetStateAction<Attachment[]>>
+  attachmentError: string | null
+  fileInputRef: RefObject<HTMLInputElement>
+  isUploadingAttachment: boolean
+  isSending: boolean
+  onUploadFiles: (files: File[]) => void
+  onSend: (payload: { content: string; attachmentIds: string[] }) => void
+}
+
+function EditorTray({
+  conversationId,
+  pendingAttachments,
+  setPendingAttachments,
+  attachmentError,
+  fileInputRef,
+  isUploadingAttachment,
+  isSending,
+  onUploadFiles,
+  onSend,
+}: EditorTrayProps) {
+  const draft = useUIStore(
+    (state) => state.draftsByConversationId[conversationId] ?? '',
+  )
+  const setDraft = useUIStore((state) => state.setDraft)
+
+  function handleSubmit() {
+    const content = draft.trim()
+    const attachmentIds = pendingAttachments.map((attachment) => attachment.id)
+    if ((!content && attachmentIds.length === 0) || isSending || isUploadingAttachment) {
+      return
+    }
+    onSend({
+      content: content || 'Attached file(s).',
+      attachmentIds,
+    })
+  }
+
+  return (
+    <div className="cf-editor-tray">
+      {pendingAttachments.length > 0 && (
+        <div className="cf-pending-attachments">
+          {pendingAttachments.map((attachment) => (
+            <div key={attachment.id} className="cf-pending-attachment">
+              <span>{attachment.filename}</span>
+              <button
+                type="button"
+                onClick={() =>
+                  setPendingAttachments((current) =>
+                    current.filter((item) => item.id !== attachment.id),
+                  )
+                }
+                aria-label={`Remove ${attachment.filename}`}
+              >
+                x
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {attachmentError && (
+        <div className="cf-import-error">{attachmentError}</div>
+      )}
+      <div className="cf-editor-actions">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="cf-hidden-file-input"
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? [])
+            if (files.length > 0) onUploadFiles(files)
+          }}
+        />
+        <button
+          type="button"
+          className="cf-secondary-button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploadingAttachment || isSending}
+        >
+          {isUploadingAttachment ? 'Attaching...' : 'Attach file'}
+        </button>
+      </div>
+      <Editor
+        value={draft}
+        onChange={(value) => setDraft(conversationId, value)}
+        onSubmit={handleSubmit}
+        disabled={isSending || isUploadingAttachment}
+      />
+    </div>
+  )
+}
+
 export function ThreadView() {
   const { id } = conversationRoute.useParams()
   const { panel } = conversationRoute.useSearch()
@@ -100,8 +202,6 @@ export function ThreadView() {
   const [editError, setEditError] = useState<string | null>(null)
 
   const focusedMessageId = useUIStore((s) => s.focusedMessageId)
-  const draft = useUIStore((s) => s.draftsByConversationId[id] ?? '')
-  const setDraft = useUIStore((s) => s.setDraft)
   const clearDraft = useUIStore((s) => s.clearDraft)
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -218,18 +318,6 @@ export function ThreadView() {
       return next.size === current.size ? current : next
     })
   }, [messages])
-
-  function handleSubmit() {
-    const content = draft.trim()
-    const attachmentIds = pendingAttachments.map((attachment) => attachment.id)
-    if ((!content && attachmentIds.length === 0) || isSending || isUploadingAttachment) {
-      return
-    }
-    sendMessage({
-      content: content || 'Attached file(s).',
-      attachmentIds,
-    })
-  }
 
   function handleImportSubmit() {
     const content = importContent.trim()
@@ -584,58 +672,17 @@ export function ThreadView() {
             ))}
         </div>
 
-        {/* Editor */}
-        <div className="cf-editor-tray">
-          {pendingAttachments.length > 0 && (
-            <div className="cf-pending-attachments">
-              {pendingAttachments.map((attachment) => (
-                <div key={attachment.id} className="cf-pending-attachment">
-                  <span>{attachment.filename}</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPendingAttachments((current) =>
-                        current.filter((item) => item.id !== attachment.id),
-                      )
-                    }
-                    aria-label={`Remove ${attachment.filename}`}
-                  >
-                    x
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          {attachmentError && (
-            <div className="cf-import-error">{attachmentError}</div>
-          )}
-          <div className="cf-editor-actions">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="cf-hidden-file-input"
-              onChange={(event) => {
-                const files = Array.from(event.target.files ?? [])
-                if (files.length > 0) uploadFiles(files)
-              }}
-            />
-            <button
-              type="button"
-              className="cf-secondary-button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploadingAttachment || isSending}
-            >
-              {isUploadingAttachment ? 'Attaching...' : 'Attach file'}
-            </button>
-          </div>
-          <Editor
-            value={draft}
-            onChange={(value) => setDraft(id, value)}
-            onSubmit={handleSubmit}
-            disabled={isSending || isUploadingAttachment}
-          />
-        </div>
+        <EditorTray
+          conversationId={id}
+          pendingAttachments={pendingAttachments}
+          setPendingAttachments={setPendingAttachments}
+          attachmentError={attachmentError}
+          fileInputRef={fileInputRef}
+          isUploadingAttachment={isUploadingAttachment}
+          isSending={isSending}
+          onUploadFiles={uploadFiles}
+          onSend={sendMessage}
+        />
         </Panel>
 
         {/* Graph panel — only mounts when ?panel=graph */}

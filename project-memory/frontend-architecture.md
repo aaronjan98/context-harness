@@ -239,6 +239,24 @@ There are five distinct state owners. Never duplicate state across layers.
 | Zustand `ui` store | Ephemeral UI state (focused message ID, unsent per-thread drafts) | Zustand |
 | React component state | Truly transient state scoped to one mounted component | useState |
 
+### Zustand subscription granularity
+
+Zustand selectors are render boundaries. A component that selects a hot value
+will re-render whenever that value changes, even if the visual input is a plain
+textarea.
+
+Keep keystroke-level state subscribed as low in the component tree as possible.
+For example, per-thread drafts should be read and written by the editor tray,
+not by `ThreadView`. If `ThreadView` subscribes to draft text, every keypress
+re-renders the entire thread: Markdown rendering, KaTeX, syntax-highlighted
+code blocks, attachments, export controls, and message edit affordances. That
+can make both plain textarea mode and CodeMirror/Vim mode feel slow even when
+the editor itself is not the bottleneck.
+
+Hot ephemeral state should also stay separate from persisted settings. Zustand
+`persist` middleware can run on every store write, so editor settings and
+keystroke drafts should not share the same persisted store path.
+
 ### Optimistic updates
 
 TanStack Query optimistic updates are temporary assumptions, not violations of

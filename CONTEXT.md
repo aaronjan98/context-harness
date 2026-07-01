@@ -51,6 +51,8 @@ canonical conversation store that:
 - `project-memory/storage-model.md` — canonical conversation file model
 - `project-memory/decisions.md` — durable accepted product decisions
 - `project-memory/frontend-architecture.md` — canonical frontend reference
+- `project-memory/learned-lessons.md` — first-person project lessons suitable
+  for interview/project explanations
 - `project-memory/snippet-strategy.md` — cross-editor snippet system plan (Neovim, Obsidian, VSCodium, Context Forge)
 - `memory/YYYY-MM-DD.md` — session logs
 
