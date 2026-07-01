@@ -1,8 +1,8 @@
 /**
- * Export the currently open ChatGPT conversation tab to Markdown.
+ * Export the currently open web-chatbot conversation tab to Markdown.
  *
  * Usage:
- * 1. Open the ChatGPT tab you want to import.
+ * 1. Open the ChatGPT or Gemini tab you want to import.
  * 2. Run this script from devtools, or use the bookmarklet version.
  * 3. Wait while it scrolls through the thread and collects mounted turns.
  * 4. Paste the copied Markdown into Context Forge's "Import Markdown" panel.
@@ -15,6 +15,7 @@
   const roleLabels = {
     user: 'User',
     assistant: 'ChatGPT',
+    gemini: 'Gemini',
   }
   const waitMs = 450
   let statusEl = null
@@ -166,6 +167,7 @@
 
   function findScrollRoot() {
     return (
+      document.querySelector('#chat-history') ??
       document.querySelector('[data-scroll-root]') ??
       document.scrollingElement ??
       document.documentElement
@@ -269,6 +271,28 @@
     return text.replace(/\u00a0/g, ' ')
   }
 
+  function isIgnoredElement(element) {
+    const tagName = element.tagName.toLowerCase()
+    const ignoredTags = new Set([
+      'at-mentions-menu',
+      'gem-icon',
+      'gem-icon-button',
+      'mat-icon',
+      'message-actions',
+      'source-footnote',
+      'source-inline-chip',
+      'sources-carousel-inline',
+      'thinking-overlay',
+      'tts-control-v2',
+    ])
+
+    if (ignoredTags.has(tagName)) return true
+    if (element.matches?.('[aria-hidden="true"], .cdk-visually-hidden')) return true
+    if (element.closest?.('source-inline-chip, sources-carousel-inline')) return true
+    if (tagName === 'button' && !element.closest('a')) return true
+    return false
+  }
+
   function inlineToMarkdown(node) {
     if (node.nodeType === Node.TEXT_NODE) {
       return escapeMarkdownText(node.textContent ?? '')
@@ -278,6 +302,8 @@
 
     const element = node
     const tagName = element.tagName.toLowerCase()
+
+    if (isIgnoredElement(element)) return ''
 
     if (isDisplayMathElement(element)) {
       return mathToMarkdown(element, true)
@@ -385,10 +411,26 @@
   function elementToMarkdown(element) {
     const tagName = element.tagName.toLowerCase()
 
+    if (isIgnoredElement(element)) return ''
     if (isDisplayMathElement(element)) return mathToMarkdown(element, true)
     if (isInlineMathElement(element)) return mathToMarkdown(element, false)
+    if (tagName === 'code-block') {
+      const code = element.querySelector('pre code')
+      const language = normalizeText(
+        element.querySelector('.code-block-decoration span')?.innerText ?? '',
+      )
+      const fenceLanguage = language ? language.toLowerCase() : ''
+      return `\`\`\`${fenceLanguage}\n${code?.innerText?.trim() ?? element.innerText.trim()}\n\`\`\``
+    }
     if (tagName === 'table') return tableToMarkdown(element)
-    if (tagName === 'div' || tagName === 'section') {
+    if (tagName === 'hr') return '---'
+    if (
+      tagName === 'div' ||
+      tagName === 'section' ||
+      tagName === 'response-element' ||
+      tagName === 'link-block' ||
+      tagName === 'message-content'
+    ) {
       return blockChildrenToMarkdown(element)
     }
     if (tagName === 'pre') return `\`\`\`\n${element.innerText.trim()}\n\`\`\``
@@ -420,15 +462,22 @@
       'h5',
       'h6',
       'li',
+      'link-block',
+      'message-content',
       'ol',
       'p',
       'pre',
+      'response-element',
       'table',
       'ul',
     ])
     const blocks = Array.from(root.children)
       .filter((child) => {
-        return blockTags.has(child.tagName.toLowerCase()) || isDisplayMathElement(child)
+        const tagName = child.tagName.toLowerCase()
+        return (
+          !isIgnoredElement(child) &&
+          (blockTags.has(tagName) || isDisplayMathElement(child) || tagName === 'code-block')
+        )
       })
       .map((child) => elementToMarkdown(child))
       .filter(Boolean)
@@ -512,7 +561,21 @@
     return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER
   }
 
-  function collectVisibleTurns(collected) {
+  function detectPlatform() {
+    if (document.querySelector('section[data-testid^="conversation-turn-"]')) {
+      return 'chatgpt'
+    }
+    if (
+      document.querySelector(
+        '.conversation-container, user-query, model-response, [data-test-id="chat-history-container"]',
+      )
+    ) {
+      return 'gemini'
+    }
+    return 'unknown'
+  }
+
+  function collectVisibleChatGptTurns(collected) {
     const turns = Array.from(
       document.querySelectorAll('section[data-testid^="conversation-turn-"]'),
     )
@@ -538,26 +601,99 @@
         markdown: `## ${label}\n\n${content}`,
       })
     }
+  }
+
+  function geminiUserContentToMarkdown(userTurn) {
+    const root = userTurn.querySelector('.query-text') ?? userTurn
+    const lines = Array.from(root.querySelectorAll('.query-text-line'))
+      .map((line) => normalizeText(inlineToMarkdown(line)))
+      .filter(Boolean)
+
+    if (lines.length > 0) return lines.join('\n')
+    return contentToMarkdown(root)
+  }
+
+  function geminiAssistantContentToMarkdown(modelTurn) {
+    const root =
+      modelTurn.querySelector('message-content .markdown') ??
+      modelTurn.querySelector('.markdown-main-panel') ??
+      modelTurn.querySelector('.model-response-text') ??
+      modelTurn
+
+    return contentToMarkdown(root)
+  }
+
+  function collectGeminiPart(collected, element, role, sortKey, fallbackId) {
+    const content =
+      role === 'user'
+        ? geminiUserContentToMarkdown(element)
+        : geminiAssistantContentToMarkdown(element)
+    if (!content) return
+
+    const id = element.id || element.getAttribute('id') || fallbackId
+    const label = role === 'user' ? roleLabels.user : roleLabels.gemini
+
+    collected.set(id, {
+      sortKey,
+      markdown: `## ${label}\n\n${content}`,
+    })
+  }
+
+  function collectVisibleGeminiTurns(collected) {
+    const containers = Array.from(document.querySelectorAll('.conversation-container'))
+
+    if (containers.length > 0) {
+      containers.forEach((container, index) => {
+        const baseId = container.id || `gemini:${index}`
+        const userTurn = container.querySelector('user-query')
+        const modelTurn = container.querySelector('model-response')
+
+        if (userTurn) {
+          collectGeminiPart(collected, userTurn, 'user', index * 2, `${baseId}:user`)
+        }
+        if (modelTurn) {
+          collectGeminiPart(collected, modelTurn, 'assistant', index * 2 + 1, `${baseId}:assistant`)
+        }
+      })
+      return
+    }
+
+    Array.from(document.querySelectorAll('user-query, model-response')).forEach(
+      (turn, index) => {
+        const tagName = turn.tagName.toLowerCase()
+        const role = tagName === 'user-query' ? 'user' : 'assistant'
+        collectGeminiPart(collected, turn, role, index, `gemini:${role}:${index}`)
+      },
+    )
+  }
+
+  function collectVisibleTurns(collected, platform) {
+    if (platform === 'gemini') {
+      collectVisibleGeminiTurns(collected)
+    } else {
+      collectVisibleChatGptTurns(collected)
+    }
 
     setStatus(`Context Forge export: collected ${collected.size} turns...`)
   }
 
   async function collectThread() {
+    const platform = detectPlatform()
     const root = findScrollRoot()
     const originalTop = scrollTopOf(root)
     const collected = new Map()
 
-    collectVisibleTurns(collected)
+    collectVisibleTurns(collected, platform)
 
     for (let i = 0; i < 40 && scrollTopOf(root) > 0; i += 1) {
       setScrollTop(root, Math.max(0, scrollTopOf(root) - viewportHeightOf(root) * 0.9))
       await wait(waitMs)
-      collectVisibleTurns(collected)
+      collectVisibleTurns(collected, platform)
     }
 
     setScrollTop(root, 0)
     await wait(waitMs)
-    collectVisibleTurns(collected)
+    collectVisibleTurns(collected, platform)
 
     let previousTop = -1
     for (let i = 0; i < 140; i += 1) {
@@ -569,7 +705,7 @@
       previousTop = currentTop
       setScrollTop(root, Math.min(maxTop, currentTop + viewportHeightOf(root) * 0.85))
       await wait(waitMs)
-      collectVisibleTurns(collected)
+      collectVisibleTurns(collected, platform)
     }
 
     setScrollTop(root, originalTop)
@@ -584,9 +720,9 @@
   const markdown = await collectThread()
 
   if (!markdown) {
-    setStatus('Context Forge export found no ChatGPT turns.')
+    setStatus('Context Forge export found no supported chatbot turns.')
     clearStatusSoon()
-    console.warn('Context Forge export found no ChatGPT turns on this page.')
+    console.warn('Context Forge export found no supported chatbot turns on this page.')
     return
   }
 

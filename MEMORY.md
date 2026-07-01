@@ -35,7 +35,7 @@ Completed:
 - backend Markdown import implemented for heading-based transcripts,
   `Speaker:` transcripts, and paragraph fallback
 - manual chatbot import implemented with a pasted Markdown import panel and
-  active-tab ChatGPT bookmarklet exporter
+  active-tab bookmarklet exporter for ChatGPT and Gemini DOM conversations
 - app-managed attachment foundation implemented: upload local files, persist
   metadata under conversation-local `attachments/`, attach files to messages,
   render attachment cards, and preview/download files through backend routes

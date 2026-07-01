@@ -31,6 +31,7 @@ checklist under `project-memory/phase-1-mvp.md`.
 - [x] Add manual browser import UX for pasted Markdown transcripts
 - [x] Add active-tab ChatGPT DOM export prototype
 - [x] Add cross-browser ChatGPT export bookmarklet for v1
+- [x] Expand the active-tab exporter to Gemini DOM conversations
 - [x] Add app-managed attachment foundation
 - [x] Render message attachment cards and fixed preview overlay
 
@@ -55,11 +56,12 @@ canonical message files that future agents can continue from.
 
 Manual browser import now has a small UI surface: the active conversation can
 open an `Import Markdown` panel, paste a transcript, and append it through the
-canonical backend importer. The ChatGPT DOM exporter is an active-tab prototype:
-the user runs it in the browser tab they want to import, then pastes the copied
-Markdown into Context Forge. The normal v1 workflow should use the one-line
-bookmarklet in `tools/chatgpt-dom-export.bookmarklet.js`; the readable console
-script remains available for debugging when the chatbot DOM changes.
+canonical backend importer. The DOM exporter is an active-tab prototype for
+supported chatbot UIs: the user runs it in the browser tab they want to import,
+then pastes the copied Markdown into Context Forge. It currently supports
+ChatGPT and Gemini DOM conversations. The normal v1 workflow should use the
+one-line bookmarklet in `tools/chatgpt-dom-export.bookmarklet.js`; the readable
+console script remains available for debugging when the chatbot DOM changes.
 
 Phase 1 should keep local capability work out of scope beyond preserving the
 backend as the only authority that will eventually mediate configured files,
