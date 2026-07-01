@@ -153,6 +153,63 @@ def test_append_message_returns_updated_thread_and_persists(client) -> None:
     assert payload["messages"][1]["content"] == "Each message is a file with frontmatter."
 
 
+def test_update_message_returns_updated_thread_and_persists(client, store) -> None:
+    client.post("/api/conversations", json={"conversation_id": "api-edit-message"})
+    client.post(
+        "/api/conversations/api-edit-message/messages",
+        json={"role": "user", "content": "Original prompt."},
+    )
+    client.post(
+        "/api/conversations/api-edit-message/messages",
+        json={
+            "role": "assistant",
+            "agent": "gemini",
+            "content": "Original response.",
+        },
+    )
+
+    response = client.patch(
+        "/api/conversations/api-edit-message/messages/m0002",
+        json={"content": "Edited response."},
+    )
+    thread = client.get("/api/conversations/api-edit-message/thread")
+    export_text = (
+        store.paths_for("api-edit-message").exports / "current.md"
+    ).read_text(encoding="utf-8")
+
+    assert response.status_code == 200
+    assert thread.status_code == 200
+    payload = response.json()
+    assert payload["messages"][1]["id"] == "m0002"
+    assert payload["messages"][1]["parent_id"] == "m0001"
+    assert payload["messages"][1]["agent"] == "gemini"
+    assert thread.json()["messages"][1]["content"] == "Edited response."
+    assert "Edited response." in export_text
+    assert "Original response." not in export_text
+
+
+def test_update_missing_message_returns_404(client) -> None:
+    client.post("/api/conversations", json={"conversation_id": "api-edit-missing"})
+
+    response = client.patch(
+        "/api/conversations/api-edit-missing/messages/m9999",
+        json={"content": "No target."},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Message not found: m9999"
+
+
+def test_update_message_missing_conversation_does_not_create_it(client, store) -> None:
+    response = client.patch(
+        "/api/conversations/missing-edit/messages/m0001",
+        json={"content": "Do not create this implicitly."},
+    )
+
+    assert response.status_code == 404
+    assert not store.conversation_dir("missing-edit").exists()
+
+
 def test_upload_attachment_and_attach_to_message(client) -> None:
     client.post("/api/conversations", json={"conversation_id": "api-attachments"})
 

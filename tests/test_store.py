@@ -61,6 +61,42 @@ def test_append_message_updates_metadata_and_export(store: ConversationStore) ->
     assert "one file per message" in export_text
 
 
+def test_update_message_content_preserves_metadata_and_refreshes_export(
+    store: ConversationStore,
+) -> None:
+    conversation_id = "unit-edit-message"
+    paths = store.initialize_conversation(conversation_id)
+    first = store.append_message(
+        conversation_id,
+        role="user",
+        agent="human",
+        content="Original question.",
+    )
+    second = store.append_message(
+        conversation_id,
+        role="assistant",
+        agent="gemini",
+        content="Original answer.",
+    )
+
+    updated = store.update_message_content(
+        conversation_id,
+        second.id,
+        "Edited answer.",
+    )
+    thread = store.active_thread(conversation_id)
+    export_text = (paths.exports / "current.md").read_text(encoding="utf-8")
+
+    assert updated.id == second.id
+    assert updated.parent_id == first.id
+    assert updated.role == "assistant"
+    assert updated.agent == "gemini"
+    assert [message.id for message in thread] == ["m0001", "m0002"]
+    assert thread[1].content == "Edited answer."
+    assert "Edited answer." in export_text
+    assert "Original answer." not in export_text
+
+
 def test_save_attachment_and_attach_to_message(store: ConversationStore) -> None:
     conversation_id = "unit-attachments"
     paths = store.initialize_conversation(conversation_id)

@@ -31,6 +31,12 @@ class AppendMessageRequest(BaseModel):
     attachment_ids: list[str] = Field(default_factory=list)
 
 
+class UpdateMessageRequest(BaseModel):
+    """Payload for editing an existing message body."""
+
+    content: str = Field(min_length=1)
+
+
 class ImportMarkdownRequest(BaseModel):
     """Payload for importing an external Markdown transcript."""
 
@@ -135,6 +141,13 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
         return HTTPException(
             status_code=404,
             detail=f"Attachment not found: {attachment_id}",
+        )
+
+    def message_not_found(message_id: str) -> HTTPException:
+        """Return a consistent 404 for missing message writes."""
+        return HTTPException(
+            status_code=404,
+            detail=f"Message not found: {message_id}",
         )
 
     def attachment_response(
@@ -270,6 +283,30 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
             )
         except FileNotFoundError as error:
             raise conversation_not_found(conversation_id) from error
+        return await get_active_thread(conversation_id)
+
+    @app.patch(
+        "/api/conversations/{conversation_id}/messages/{message_id}",
+        response_model=ThreadResponse,
+    )
+    async def update_message(
+        conversation_id: str,
+        message_id: str,
+        payload: UpdateMessageRequest,
+    ) -> dict[str, object]:
+        """Edit one message body and return the updated active thread."""
+        try:
+            store.update_message_content(
+                conversation_id,
+                message_id,
+                payload.content,
+            )
+        except FileNotFoundError as error:
+            try:
+                store.require_existing_conversation(conversation_id)
+            except FileNotFoundError:
+                raise conversation_not_found(conversation_id) from error
+            raise message_not_found(message_id) from error
         return await get_active_thread(conversation_id)
 
     @app.post(

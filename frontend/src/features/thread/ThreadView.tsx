@@ -33,6 +33,7 @@ import {
   fetchCurrentExportMarkdown,
   importMarkdown,
   resolveApiUrl,
+  updateMessage,
   uploadAttachment,
 } from '@/api/conversations'
 import type { Attachment, Message } from '@/api/conversations'
@@ -94,6 +95,9 @@ export function ThreadView() {
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null)
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [editingContent, setEditingContent] = useState('')
+  const [editError, setEditError] = useState<string | null>(null)
 
   const focusedMessageId = useUIStore((s) => s.focusedMessageId)
   const draft = useUIStore((s) => s.draftsByConversationId[id] ?? '')
@@ -167,6 +171,25 @@ export function ThreadView() {
     },
   })
 
+  const { mutate: saveMessageEdit, isPending: isEditingMessage } = useMutation({
+    mutationFn: (payload: { messageId: string; content: string }) =>
+      updateMessage(id, payload.messageId, { content: payload.content }),
+    onSuccess: () => {
+      setEditingMessageId(null)
+      setEditingContent('')
+      setEditError(null)
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
+    },
+    onError: (mutationError) => {
+      setEditError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : 'Failed to save message edit.',
+      )
+    },
+  })
+
   // Scroll to focused message when graph panel clicks a node (Phase 4)
   useEffect(() => {
     if (focusedMessageId && messageRefs.current[focusedMessageId]) {
@@ -212,6 +235,24 @@ export function ThreadView() {
     const content = importContent.trim()
     if (!content || isImporting) return
     submitImport(content)
+  }
+
+  function startEditingMessage(message: Message) {
+    setIsExportOpen(false)
+    setEditingMessageId(message.id)
+    setEditingContent(message.content)
+    setEditError(null)
+  }
+
+  function cancelMessageEdit() {
+    setEditingMessageId(null)
+    setEditingContent('')
+    setEditError(null)
+  }
+
+  function submitMessageEdit(messageId: string) {
+    if (!editingContent.trim() || isEditingMessage) return
+    saveMessageEdit({ messageId, content: editingContent })
   }
 
   async function handleCopyExport() {
@@ -281,6 +322,7 @@ export function ThreadView() {
   }
 
   const selectedCount = selectedMessageIds.size
+  const editingMessage = messages?.find((message) => message.id === editingMessageId)
 
   const isMissingConversation = error instanceof ApiError && error.status === 404
 
@@ -492,8 +534,22 @@ export function ThreadView() {
                       : ''
                   }`}
                 >
-                  <div className="cf-message-meta">
-                    {msg.role} · {msg.agent ?? 'unknown'} · {msg.timestamp}
+                  <div className="cf-message-topline">
+                    <div className="cf-message-meta">
+                      {msg.role} · {msg.agent ?? 'unknown'} · {msg.timestamp}
+                    </div>
+                    <button
+                      type="button"
+                      className="cf-message-edit-button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        startEditingMessage(msg)
+                      }}
+                      aria-label={`Edit message ${msg.id}`}
+                      title="Edit message"
+                    >
+                      ✎
+                    </button>
                   </div>
                   <MessageContent content={msg.content} />
                   {msg.attachments.length > 0 && (
@@ -666,6 +722,55 @@ export function ThreadView() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {editingMessage && (
+        <div className="cf-attachment-overlay" role="dialog" aria-modal="true">
+          <div className="cf-message-edit-modal">
+            <div className="cf-attachment-modal-header">
+              <div>
+                <div className="cf-attachment-modal-title">
+                  Edit message
+                </div>
+                <div className="cf-attachment-modal-meta">
+                  {editingMessage.role} · {editingMessage.agent ?? 'unknown'} ·{' '}
+                  {editingMessage.timestamp}
+                </div>
+              </div>
+              <div className="cf-attachment-modal-actions">
+                <button
+                  type="button"
+                  className="cf-secondary-button"
+                  onClick={cancelMessageEdit}
+                  disabled={isEditingMessage}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="cf-primary-button"
+                  onClick={() => submitMessageEdit(editingMessage.id)}
+                  disabled={!editingContent.trim() || isEditingMessage}
+                >
+                  {isEditingMessage ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+            <textarea
+              className="cf-message-edit-textarea cf-message-edit-textarea-modal"
+              value={editingContent}
+              onChange={(event) => {
+                setEditingContent(event.target.value)
+                setEditError(null)
+              }}
+              disabled={isEditingMessage}
+              aria-label={`Edit content for message ${editingMessage.id}`}
+            />
+            {editError && (
+              <div className="cf-import-error">{editError}</div>
+            )}
           </div>
         </div>
       )}

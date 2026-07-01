@@ -330,6 +330,27 @@ class ConversationStore:
             raise FileNotFoundError(f"Attachment file not found: {attachment_id}")
         return path
 
+    def update_message_content(
+        self,
+        conversation_id: str,
+        message_id: str,
+        content: str,
+    ) -> MessageRecord:
+        """Rewrite one message body while preserving its metadata."""
+        paths = self.require_existing_conversation(conversation_id)
+        if not self.valid_message_id(message_id):
+            raise FileNotFoundError(f"Message not found: {message_id}")
+
+        message_file = paths.messages / f"{message_id}.md"
+        if not message_file.exists():
+            raise FileNotFoundError(f"Message not found: {message_id}")
+
+        record = self.read_message_file(message_file)
+        record.content = content
+        self.write_message(paths, record)
+        self.write_current_export(paths, self.active_thread(conversation_id))
+        return record
+
     def parse_markdown_import(self, content: str) -> list[ImportedMessage]:
         """Parse common Markdown transcript shapes into messages."""
         heading_messages = self.parse_heading_transcript(content)
@@ -657,6 +678,11 @@ class ConversationStore:
     def valid_attachment_id(attachment_id: str) -> bool:
         """Return whether an attachment id matches the app-controlled format."""
         return re.fullmatch(r"a\d{4}", attachment_id) is not None
+
+    @staticmethod
+    def valid_message_id(message_id: str) -> bool:
+        """Return whether a message id matches the app-controlled format."""
+        return re.fullmatch(r"m\d{4}", message_id) is not None
 
     @staticmethod
     def _to_optional_text(value: Any) -> str | None:

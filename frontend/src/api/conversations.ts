@@ -26,6 +26,10 @@ export type AppendMessageRequest =
 export type ImportMarkdownRequest =
   components['schemas']['ImportMarkdownRequest']
 
+export interface UpdateMessageRequest {
+  content: string
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -99,6 +103,27 @@ export async function appendMessage(
   )
   if (error) throw toApiError(error, response)
   return data
+}
+
+export async function updateMessage(
+  conversationId: string,
+  messageId: string,
+  body: UpdateMessageRequest,
+) {
+  const response = await fetch(
+    resolveApiUrl(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+    ),
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
+
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) throw toApiError(payload, response)
+  return payload
 }
 
 export async function uploadAttachment(

@@ -495,11 +495,58 @@ textarea {
   box-shadow: var(--cf-glow);
 }
 
-.cf-message-meta {
+.cf-message-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 4px;
+}
+
+.cf-message-meta {
   color: var(--cf-subtle);
   font-family: monospace;
   font-size: 11px;
+}
+
+.cf-message-edit-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--cf-subtle);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.cf-message-edit-button:hover,
+.cf-message-edit-button:focus-visible {
+  border-color: var(--cf-border-strong);
+  background: var(--cf-surface-muted);
+  color: var(--cf-text);
+  outline: none;
+}
+
+.cf-message-edit-textarea {
+  min-height: 180px;
+  resize: vertical;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 8px;
+  background: var(--cf-bg);
+  color: var(--cf-text);
+  font: inherit;
+  line-height: 1.5;
+  padding: 10px;
+}
+
+.cf-message-edit-textarea:focus {
+  border-color: var(--cf-accent);
+  box-shadow: var(--cf-glow);
+  outline: none;
 }
 
 .cf-message-content {
@@ -927,6 +974,18 @@ textarea {
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
 }
 
+.cf-message-edit-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(980px, 92vw);
+  height: min(760px, 88vh);
+  overflow: hidden;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 14px;
+  background: var(--cf-surface);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+
 .cf-attachment-modal-header {
   display: flex;
   align-items: center;
@@ -952,6 +1011,12 @@ textarea {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.cf-message-edit-textarea-modal {
+  flex: 1;
+  min-height: 0;
+  margin: 14px;
 }
 
 .cf-attachment-preview-body {
