@@ -242,6 +242,7 @@ textarea {
 
 .cf-thread-toolbar {
   display: flex;
+  position: relative;
   gap: 12px;
   justify-content: flex-end;
   padding: 8px 16px;
@@ -266,6 +267,57 @@ textarea {
   background: transparent;
   cursor: pointer;
   padding: 0;
+}
+
+.cf-export-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 16px;
+  z-index: 20;
+  min-width: 220px;
+  border: 1px solid var(--cf-border);
+  border-radius: 10px;
+  background: var(--cf-surface);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
+  padding: 6px;
+}
+
+.cf-export-menu-item {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--cf-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 7px 9px;
+  text-align: left;
+  text-decoration: none;
+}
+
+.cf-export-menu-item:hover {
+  background: var(--cf-surface-muted);
+  color: var(--cf-accent);
+}
+
+.cf-export-menu-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.cf-export-menu-divider {
+  height: 1px;
+  background: var(--cf-border);
+  margin: 6px 2px;
+}
+
+.cf-export-menu-note {
+  color: var(--cf-subtle);
+  font-size: 11px;
+  line-height: 1.35;
+  padding: 5px 9px;
 }
 
 .cf-export-status {
@@ -378,10 +430,13 @@ textarea {
 }
 
 .cf-message-row {
+  margin-bottom: 16px;
+}
+
+.cf-message-row-selecting {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
   gap: 10px;
-  margin-bottom: 16px;
 }
 
 .cf-message-select-dot {

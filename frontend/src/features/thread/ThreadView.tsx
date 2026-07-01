@@ -84,6 +84,7 @@ export function ThreadView() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [isImportOpen, setIsImportOpen] = useState(false)
+  const [isExportOpen, setIsExportOpen] = useState(false)
   const [importContent, setImportContent] = useState('')
   const [importError, setImportError] = useState<string | null>(null)
   const [exportStatus, setExportStatus] = useState<string | null>(null)
@@ -307,6 +308,7 @@ export function ThreadView() {
             className="cf-link-pill cf-toolbar-button"
             onClick={() => {
               setImportError(null)
+              setIsExportOpen(false)
               setIsImportOpen((value) => !value)
             }}
           >
@@ -323,40 +325,60 @@ export function ThreadView() {
           <button
             type="button"
             className="cf-link-pill cf-toolbar-button"
-            onClick={handleCopyExport}
+            onClick={() => {
+              setIsImportOpen(false)
+              setIsExportOpen((value) => !value)
+            }}
+            aria-expanded={isExportOpen}
           >
-            Copy export
+            Export
           </button>
-          <a
-            className="cf-link-pill"
-            href={currentExportDownloadUrl(id)}
-          >
-            Download export
-          </a>
-          {selectedCount > 0 && (
-            <>
+          {isExportOpen && (
+            <div className="cf-export-menu">
               <button
                 type="button"
-                className="cf-link-pill cf-toolbar-button"
-                onClick={handleCopySelectedExport}
+                className="cf-export-menu-item"
+                onClick={handleCopyExport}
               >
-                Copy selected ({selectedCount})
+                Copy full thread
+              </button>
+              <a
+                className="cf-export-menu-item"
+                href={currentExportDownloadUrl(id)}
+              >
+                Download full thread
+              </a>
+              <div className="cf-export-menu-divider" />
+              <div className="cf-export-menu-note">
+                {selectedCount > 0
+                  ? `${selectedCount} selected message(s)`
+                  : 'Select messages with the dots on the left.'}
+              </div>
+              <button
+                type="button"
+                className="cf-export-menu-item"
+                onClick={handleCopySelectedExport}
+                disabled={selectedCount === 0}
+              >
+                Copy selected
               </button>
               <button
                 type="button"
-                className="cf-link-pill cf-toolbar-button"
+                className="cf-export-menu-item"
                 onClick={handleDownloadSelectedExport}
+                disabled={selectedCount === 0}
               >
                 Download selected
               </button>
               <button
                 type="button"
-                className="cf-link-pill cf-toolbar-button"
+                className="cf-export-menu-item"
                 onClick={() => setSelectedMessageIds(new Set())}
+                disabled={selectedCount === 0}
               >
                 Clear selection
               </button>
-            </>
+            </div>
           )}
         </div>
         {exportStatus && (
@@ -421,28 +443,37 @@ export function ThreadView() {
           )}
           {messages &&
             messages.map((msg: Message) => (
-              <div key={msg.id} className="cf-message-row">
-                <button
-                  type="button"
-                  className={`cf-message-select-dot ${
-                    selectedMessageIds.has(msg.id)
-                      ? 'cf-message-select-dot-active'
-                      : ''
-                  }`}
-                  onClick={() => toggleMessageSelection(msg.id)}
-                  aria-label={
-                    selectedMessageIds.has(msg.id)
-                      ? `Deselect message ${msg.id}`
-                      : `Select message ${msg.id}`
-                  }
-                  aria-pressed={selectedMessageIds.has(msg.id)}
-                />
+              <div
+                key={msg.id}
+                className={`cf-message-row ${
+                  isExportOpen ? 'cf-message-row-selecting' : ''
+                }`}
+              >
+                {isExportOpen && (
+                  <button
+                    type="button"
+                    className={`cf-message-select-dot ${
+                      selectedMessageIds.has(msg.id)
+                        ? 'cf-message-select-dot-active'
+                        : ''
+                    }`}
+                    onClick={() => toggleMessageSelection(msg.id)}
+                    aria-label={
+                      selectedMessageIds.has(msg.id)
+                        ? `Deselect message ${msg.id}`
+                        : `Select message ${msg.id}`
+                    }
+                    aria-pressed={selectedMessageIds.has(msg.id)}
+                  />
+                )}
                 <div
                   ref={(el) => { messageRefs.current[msg.id] = el }}
                   className={`cf-message ${
                     msg.role === 'user' ? 'cf-message-user' : 'cf-message-assistant'
                   } ${
-                    selectedMessageIds.has(msg.id) ? 'cf-message-selected' : ''
+                    isExportOpen && selectedMessageIds.has(msg.id)
+                      ? 'cf-message-selected'
+                      : ''
                   }`}
                 >
                   <div className="cf-message-meta">
