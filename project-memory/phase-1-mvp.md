@@ -12,11 +12,14 @@ Backend progress:
 - backend tests cover the current storage and API foundation
 
 Frontend progress:
-- intentionally not implemented by the backend agent at this stage
-- the user is building the UI layer separately
+- React/Vite browser shell is implemented enough for create/read/append,
+  rename/delete, Markdown rendering, and manual transcript import
+- UI work should remain conservative because the user is shaping the visual
+  design
 
 Immediate backend gap:
-- Markdown import remains the main unfinished Phase 1 backend feature
+- no major backend gap is known for manual transcript import
+- next backend-facing gap is the first assistant adapter boundary
 
 ## In scope
 - create/open a conversation
@@ -26,6 +29,7 @@ Immediate backend gap:
 - write canonical conversation files
 - regenerate `exports/current.md`
 - basic Markdown import with light speaker-pattern matching
+- paste/import UX for web-chatbot or agent transcripts
 
 ## Out of scope
 - branching/forking
@@ -40,8 +44,10 @@ Immediate backend gap:
 - reloading the app restores the same thread
 - a user can use the UI as the main surface instead of the terminal alone
 - exported Markdown is good enough to hand to another agent/chat tool
+- a copied/exported web-chatbot transcript can be appended into the canonical
+  conversation without direct browser automation
 
 ## Immediate implementation questions
-- what initial backend API should own conversation writes
-- what import syntax patterns should v1 support first
 - what is the smallest useful agent adapter or mocked reply path
+- whether selected Context Forge message export belongs before or after the
+  first assistant adapter boundary

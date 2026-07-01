@@ -16,7 +16,7 @@
  * See project-memory/frontend-architecture.md § Layout and § State layers.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { Link, useNavigate } from '@tanstack/react-router'
@@ -25,7 +25,12 @@ import { Editor } from '@/features/editor'
 import { GraphPanel } from '@/features/graph'
 import { MessageContent } from '@/shared/components/MessageContent'
 import { useUIStore } from '@/store/ui'
-import { ApiError, fetchMessages, appendMessage } from '@/api/conversations'
+import {
+  ApiError,
+  fetchMessages,
+  appendMessage,
+  importMarkdown,
+} from '@/api/conversations'
 import type { Message } from '@/api/conversations'
 
 export function ThreadView() {
@@ -33,6 +38,9 @@ export function ThreadView() {
   const { panel } = conversationRoute.useSearch()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [isImportOpen, setIsImportOpen] = useState(false)
+  const [importContent, setImportContent] = useState('')
+  const [importError, setImportError] = useState<string | null>(null)
 
   const focusedMessageId = useUIStore((s) => s.focusedMessageId)
   const draft = useUIStore((s) => s.draftsByConversationId[id] ?? '')
@@ -55,6 +63,24 @@ export function ThreadView() {
       clearDraft(id)
       queryClient.invalidateQueries({ queryKey: ['conversations'] })
       queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
+    },
+  })
+
+  const { mutate: submitImport, isPending: isImporting } = useMutation({
+    mutationFn: (content: string) => importMarkdown(id, { content }),
+    onSuccess: () => {
+      setImportContent('')
+      setImportError(null)
+      setIsImportOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
+    },
+    onError: (mutationError) => {
+      setImportError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : 'Failed to import Markdown.',
+      )
     },
   })
 
@@ -81,6 +107,12 @@ export function ThreadView() {
     sendMessage(content)
   }
 
+  function handleImportSubmit() {
+    const content = importContent.trim()
+    if (!content || isImporting) return
+    submitImport(content)
+  }
+
   const isMissingConversation = error instanceof ApiError && error.status === 404
 
   if (isMissingConversation) {
@@ -101,6 +133,16 @@ export function ThreadView() {
       <Panel id="thread" minSize={30} className="cf-thread-panel">
         {/* Graph panel toggle */}
         <div className="cf-thread-toolbar">
+          <button
+            type="button"
+            className="cf-link-pill cf-toolbar-button"
+            onClick={() => {
+              setImportError(null)
+              setIsImportOpen((value) => !value)
+            }}
+          >
+            {isImportOpen ? 'Close import' : 'Import Markdown'}
+          </button>
           <Link
             to="/conversations/$id"
             params={{ id }}
@@ -110,6 +152,54 @@ export function ThreadView() {
             {panel === 'graph' ? 'Close graph' : 'View graph'}
           </Link>
         </div>
+
+        {isImportOpen && (
+          <div className="cf-import-panel">
+            <div className="cf-import-header">
+              <div>
+                <div className="cf-import-title">Import Markdown transcript</div>
+                <div className="cf-import-help">
+                  Paste exported chatbot turns here. Context Forge will append
+                  them to this conversation as canonical messages.
+                </div>
+              </div>
+              <div className="cf-import-actions">
+                <button
+                  type="button"
+                  className="cf-secondary-button"
+                  onClick={() => {
+                    setImportContent('')
+                    setImportError(null)
+                  }}
+                  disabled={!importContent || isImporting}
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  className="cf-primary-button"
+                  onClick={handleImportSubmit}
+                  disabled={!importContent.trim() || isImporting}
+                >
+                  {isImporting ? 'Importing...' : 'Import'}
+                </button>
+              </div>
+            </div>
+            <textarea
+              className="cf-import-textarea"
+              value={importContent}
+              onChange={(event) => {
+                setImportContent(event.target.value)
+                setImportError(null)
+              }}
+              placeholder={'## User\n\nPaste a copied or exported conversation here.\n\n## ChatGPT\n\nThe imported reply goes here.'}
+              disabled={isImporting}
+            />
+            {importError && (
+              <div className="cf-import-error">{importError}</div>
+            )}
+          </div>
+        )}
 
         {/* Message list */}
         <div className="cf-thread-scroll">

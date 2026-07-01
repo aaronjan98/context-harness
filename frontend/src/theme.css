@@ -242,6 +242,7 @@ textarea {
 
 .cf-thread-toolbar {
   display: flex;
+  gap: 12px;
   justify-content: flex-end;
   padding: 8px 16px;
   border-bottom: 1px solid var(--cf-border);
@@ -254,9 +255,111 @@ textarea {
   text-decoration: none;
 }
 
-.cf-link-pill:hover {
+.cf-link-pill:hover,
+.cf-toolbar-button:hover {
   color: var(--cf-accent);
   text-shadow: 0 0 12px color-mix(in srgb, var(--cf-accent) 35%, transparent);
+}
+
+.cf-toolbar-button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.cf-import-panel {
+  border-bottom: 1px solid var(--cf-border);
+  background: var(--cf-surface);
+  padding: 12px 16px;
+}
+
+.cf-import-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.cf-import-title {
+  color: var(--cf-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cf-import-help {
+  max-width: 720px;
+  color: var(--cf-subtle);
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 3px;
+}
+
+.cf-import-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.cf-primary-button,
+.cf-secondary-button {
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 4px;
+  color: var(--cf-text);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+.cf-primary-button {
+  background: var(--cf-accent);
+  border-color: var(--cf-accent);
+  color: var(--cf-bg);
+}
+
+.cf-secondary-button {
+  background: transparent;
+}
+
+.cf-primary-button:hover,
+.cf-secondary-button:hover {
+  box-shadow: var(--cf-glow);
+}
+
+.cf-primary-button:disabled,
+.cf-secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.cf-import-textarea {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 6px;
+  outline: none;
+  background: var(--cf-bg);
+  color: var(--cf-text);
+  font-family: monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px;
+}
+
+.cf-import-textarea:focus {
+  border-color: var(--cf-accent);
+  box-shadow: var(--cf-glow);
+}
+
+.cf-import-textarea::placeholder {
+  color: var(--cf-subtle);
+}
+
+.cf-import-error {
+  color: var(--cf-danger);
+  font-size: 12px;
+  margin-top: 8px;
 }
 
 .cf-thread-scroll {
@@ -290,6 +393,7 @@ textarea {
 
 .cf-message-content {
   color: var(--cf-text);
+  line-height: 1.55;
 }
 
 .cf-message-content :first-child {
@@ -300,12 +404,113 @@ textarea {
   margin-bottom: 0;
 }
 
+.cf-message-content p {
+  margin: 0.65em 0;
+}
+
+.cf-message-content h1,
+.cf-message-content h2,
+.cf-message-content h3,
+.cf-message-content h4 {
+  color: var(--cf-text);
+  line-height: 1.25;
+  margin: 1.1em 0 0.45em;
+}
+
+.cf-message-content h1 {
+  font-size: 1.35rem;
+}
+
+.cf-message-content h2 {
+  font-size: 1.2rem;
+}
+
+.cf-message-content h3 {
+  font-size: 1.08rem;
+}
+
+.cf-message-content strong {
+  color: var(--cf-text);
+  font-weight: 700;
+}
+
+.cf-message-content em {
+  font-style: italic;
+}
+
+.cf-message-content blockquote {
+  margin: 0.85em 0;
+  border-left: 3px solid var(--cf-border-strong);
+  color: var(--cf-muted);
+  padding: 0.1em 0 0.1em 0.9em;
+}
+
+.cf-message-content blockquote p {
+  margin: 0.45em 0;
+}
+
+.cf-message-content ul,
+.cf-message-content ol {
+  margin: 0.65em 0;
+  padding-left: 1.5em;
+}
+
+.cf-message-content li + li {
+  margin-top: 0.25em;
+}
+
 .cf-message-content code {
   border: 1px solid var(--cf-border);
   border-radius: 4px;
   background: var(--cf-surface-muted);
   color: var(--cf-text);
   padding: 0.1em 0.25em;
+}
+
+.cf-message-content pre {
+  overflow-x: auto;
+  border: 1px solid var(--cf-border);
+  border-radius: 8px;
+  background: var(--cf-surface-muted);
+  padding: 10px;
+}
+
+.cf-message-content pre code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.cf-message-content .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.35em 0;
+}
+
+.cf-message-content table {
+  width: 100%;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  margin: 12px 0;
+  font-size: 14px;
+}
+
+.cf-message-content th,
+.cf-message-content td {
+  border: 1px solid var(--cf-border);
+  padding: 6px 8px;
+  vertical-align: top;
+}
+
+.cf-message-content th {
+  background: var(--cf-surface-muted);
+  font-weight: 600;
+  text-align: left;
+}
+
+.cf-message-content tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--cf-surface-muted) 45%, transparent);
 }
 
 .cf-editor-tray {

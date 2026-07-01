@@ -29,6 +29,7 @@ Create a local interface where a user can:
 - binary attachment workflows beyond future hooks in the model
 - arbitrary shell/tool execution from the browser
 - general-purpose agent orchestration
+- automatic browser-tab discovery or unattended web-chatbot scraping
 
 ## Core principles
 
@@ -132,6 +133,18 @@ or a full custom agent runtime. Any agent that can read files and run commands
 should be able to export context from Context Forge and append a response back
 through commands such as `context-forge export` and `context-forge append`.
 
+### Web-chatbot handoff
+Web-chatbot workflows are manual and explicit in early phases. The user chooses
+the source browser tab by running an exporter in that tab, then chooses the
+destination Context Forge conversation by importing the resulting Markdown
+there. Context Forge should not guess which open browser tab is canonical.
+
+Initial import/export operations should support:
+- importing pasted Markdown into the current conversation
+- copying or exporting the full active thread
+- manually appending a single chatbot reply
+- later exporting selected Context Forge messages as a focused context slice
+
 ## Import and export
 
 ### Markdown export
@@ -159,6 +172,7 @@ canonical conversation model. More advanced export handling is deferred.
 - one-agent or mock reply path
 - Markdown export sync
 - basic Markdown import
+- manual import UX for pasted transcripts
 - aligned frontend/backend API contract
 
 ### Phase 2 — Math-native input
@@ -181,6 +195,9 @@ canonical conversation model. More advanced export handling is deferred.
 - multiple agent adapters
 - smoother handoff and continuation between tools
 - CLI bridge commands for export/append/import before deeper runtime adapters
+- deterministic browser-tab exporters before browser automation
+- LLM-assisted transcript extraction only as a reviewable fallback when
+  deterministic adapters fail
 - controlled tool-action workflow where model output can request local actions
   that the backend mediates and the user approves
 

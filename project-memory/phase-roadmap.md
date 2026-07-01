@@ -17,7 +17,9 @@ Current status:
 - frontend scaffold now matches the backend API contract at the typed API layer
 - frontend production build passes
 - Markdown import is the main remaining backend feature for this phase
-- live browser/backend smoke testing is still pending
+- browser/backend lifecycle smoke testing is complete
+- manual browser import UX and an active-tab ChatGPT DOM exporter are the next
+  bridge checkpoint
 - local files/tools/skills are future backend capabilities, not Phase 1
   behavior
 
@@ -61,5 +63,9 @@ Success means:
 - a CLI bridge exists so Claude Code, Codex, scripts, and web-chatbot workflows
   can export context and append responses without native integration
 - adapters can submit replies without breaking the canonical store
+- browser chatbot adapters start as explicit active-tab exporters, not automatic
+  tab discovery
+- LLM fallback can help reconstruct transcripts from unknown or changed UIs, but
+  only as a reviewable step before canonical import
 - model-requested tool actions can be reviewed, executed by the local backend,
   and exported back into the thread

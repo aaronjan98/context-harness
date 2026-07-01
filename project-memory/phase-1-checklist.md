@@ -28,6 +28,9 @@ checklist under `project-memory/phase-1-mvp.md`.
 - [x] Add conversation rename and delete lifecycle controls
 - [x] Prevent implicit conversation creation on stale read routes
 - [x] Add basic Markdown import with light speaker-pattern matching
+- [x] Add manual browser import UX for pasted Markdown transcripts
+- [x] Add active-tab ChatGPT DOM export prototype
+- [x] Add cross-browser ChatGPT export bookmarklet for v1
 
 ## Current checkpoint
 The backend can now append canonical message nodes, read the active thread,
@@ -44,6 +47,14 @@ refresh, rename, delete, stale-route recovery, and storage under
 Markdown import exists because Context Forge must be able to take a transcript
 from a web chatbot, copied agent output, or Markdown file and convert it into
 canonical message files that future agents can continue from.
+
+Manual browser import now has a small UI surface: the active conversation can
+open an `Import Markdown` panel, paste a transcript, and append it through the
+canonical backend importer. The ChatGPT DOM exporter is an active-tab prototype:
+the user runs it in the browser tab they want to import, then pastes the copied
+Markdown into Context Forge. The normal v1 workflow should use the one-line
+bookmarklet in `tools/chatgpt-dom-export.bookmarklet.js`; the readable console
+script remains available for debugging when the chatbot DOM changes.
 
 Phase 1 should keep local capability work out of scope beyond preserving the
 backend as the only authority that will eventually mediate configured files,
