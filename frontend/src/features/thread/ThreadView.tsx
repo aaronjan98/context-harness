@@ -56,6 +56,28 @@ function attachmentKind(attachment: Attachment): 'image' | 'text' | 'pdf' | 'oth
   return 'other'
 }
 
+function messageSpeaker(message: Message): string {
+  return message.role === 'user' ? 'User' : message.agent || message.role
+}
+
+function messageToMarkdown(message: Message): string {
+  const attachmentLines = message.attachments.map(
+    (attachment) => `- [${attachment.filename}](${attachment.relative_path})`,
+  )
+  const attachments =
+    attachmentLines.length > 0
+      ? `\n\n> [!attachment]\n${attachmentLines
+          .map((line) => `> ${line}`)
+          .join('\n')}`
+      : ''
+
+  return `## ${messageSpeaker(message)}\n${message.content}${attachments}`.trim()
+}
+
+function messagesToMarkdown(messages: Message[]): string {
+  return messages.map(messageToMarkdown).join('\n\n')
+}
+
 export function ThreadView() {
   const { id } = conversationRoute.useParams()
   const { panel } = conversationRoute.useSearch()
@@ -65,6 +87,9 @@ export function ThreadView() {
   const [importContent, setImportContent] = useState('')
   const [importError, setImportError] = useState<string | null>(null)
   const [exportStatus, setExportStatus] = useState<string | null>(null)
+  const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(
+    () => new Set(),
+  )
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null)
@@ -158,6 +183,18 @@ export function ThreadView() {
     }
   }, [error, navigate, queryClient])
 
+  useEffect(() => {
+    if (!messages) return
+
+    const messageIds = new Set(messages.map((message) => message.id))
+    setSelectedMessageIds((current) => {
+      const next = new Set(
+        Array.from(current).filter((messageId) => messageIds.has(messageId)),
+      )
+      return next.size === current.size ? current : next
+    })
+  }, [messages])
+
   function handleSubmit() {
     const content = draft.trim()
     const attachmentIds = pendingAttachments.map((attachment) => attachment.id)
@@ -191,6 +228,58 @@ export function ThreadView() {
       )
     }
   }
+
+  function selectedMessages(): Message[] {
+    return (messages ?? []).filter((message) => selectedMessageIds.has(message.id))
+  }
+
+  function toggleMessageSelection(messageId: string) {
+    setSelectedMessageIds((current) => {
+      const next = new Set(current)
+      if (next.has(messageId)) {
+        next.delete(messageId)
+      } else {
+        next.add(messageId)
+      }
+      return next
+    })
+  }
+
+  async function handleCopySelectedExport() {
+    const selected = selectedMessages()
+    if (selected.length === 0) return
+
+    try {
+      await navigator.clipboard.writeText(messagesToMarkdown(selected))
+      setExportStatus(`Copied ${selected.length} selected message(s).`)
+      window.setTimeout(() => setExportStatus(null), 2400)
+    } catch (exportError) {
+      setExportStatus(
+        exportError instanceof Error
+          ? exportError.message
+          : 'Failed to copy selected messages.',
+      )
+    }
+  }
+
+  function handleDownloadSelectedExport() {
+    const selected = selectedMessages()
+    if (selected.length === 0) return
+
+    const blob = new Blob([messagesToMarkdown(selected)], {
+      type: 'text/markdown;charset=utf-8',
+    })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${id}-selected.md`
+    link.click()
+    URL.revokeObjectURL(url)
+    setExportStatus(`Downloaded ${selected.length} selected message(s).`)
+    window.setTimeout(() => setExportStatus(null), 2400)
+  }
+
+  const selectedCount = selectedMessageIds.size
 
   const isMissingConversation = error instanceof ApiError && error.status === 404
 
@@ -244,6 +333,31 @@ export function ThreadView() {
           >
             Download export
           </a>
+          {selectedCount > 0 && (
+            <>
+              <button
+                type="button"
+                className="cf-link-pill cf-toolbar-button"
+                onClick={handleCopySelectedExport}
+              >
+                Copy selected ({selectedCount})
+              </button>
+              <button
+                type="button"
+                className="cf-link-pill cf-toolbar-button"
+                onClick={handleDownloadSelectedExport}
+              >
+                Download selected
+              </button>
+              <button
+                type="button"
+                className="cf-link-pill cf-toolbar-button"
+                onClick={() => setSelectedMessageIds(new Set())}
+              >
+                Clear selection
+              </button>
+            </>
+          )}
         </div>
         {exportStatus && (
           <div className="cf-export-status">{exportStatus}</div>
@@ -307,41 +421,59 @@ export function ThreadView() {
           )}
           {messages &&
             messages.map((msg: Message) => (
-              <div
-                key={msg.id}
-                ref={(el) => { messageRefs.current[msg.id] = el }}
-                className={`cf-message ${
-                  msg.role === 'user' ? 'cf-message-user' : 'cf-message-assistant'
-                }`}
-              >
-                <div className="cf-message-meta">
-                  {msg.role} · {msg.agent ?? 'unknown'} · {msg.timestamp}
-                </div>
-                <MessageContent content={msg.content} />
-                {msg.attachments.length > 0 && (
-                  <div className="cf-attachment-list">
-                    {msg.attachments.map((attachment) => (
-                      <button
-                        key={attachment.id}
-                        type="button"
-                        className="cf-attachment-card"
-                        onClick={() => setPreviewAttachment(attachment)}
-                      >
-                        <span className="cf-attachment-icon">
-                          {attachmentKind(attachment) === 'image' ? 'IMG' : 'FILE'}
-                        </span>
-                        <span className="cf-attachment-details">
-                          <span className="cf-attachment-name">
-                            {attachment.filename}
-                          </span>
-                          <span className="cf-attachment-meta">
-                            {attachment.content_type} · {formatBytes(attachment.size)}
-                          </span>
-                        </span>
-                      </button>
-                    ))}
+              <div key={msg.id} className="cf-message-row">
+                <button
+                  type="button"
+                  className={`cf-message-select-dot ${
+                    selectedMessageIds.has(msg.id)
+                      ? 'cf-message-select-dot-active'
+                      : ''
+                  }`}
+                  onClick={() => toggleMessageSelection(msg.id)}
+                  aria-label={
+                    selectedMessageIds.has(msg.id)
+                      ? `Deselect message ${msg.id}`
+                      : `Select message ${msg.id}`
+                  }
+                  aria-pressed={selectedMessageIds.has(msg.id)}
+                />
+                <div
+                  ref={(el) => { messageRefs.current[msg.id] = el }}
+                  className={`cf-message ${
+                    msg.role === 'user' ? 'cf-message-user' : 'cf-message-assistant'
+                  } ${
+                    selectedMessageIds.has(msg.id) ? 'cf-message-selected' : ''
+                  }`}
+                >
+                  <div className="cf-message-meta">
+                    {msg.role} · {msg.agent ?? 'unknown'} · {msg.timestamp}
                   </div>
-                )}
+                  <MessageContent content={msg.content} />
+                  {msg.attachments.length > 0 && (
+                    <div className="cf-attachment-list">
+                      {msg.attachments.map((attachment) => (
+                        <button
+                          key={attachment.id}
+                          type="button"
+                          className="cf-attachment-card"
+                          onClick={() => setPreviewAttachment(attachment)}
+                        >
+                          <span className="cf-attachment-icon">
+                            {attachmentKind(attachment) === 'image' ? 'IMG' : 'FILE'}
+                          </span>
+                          <span className="cf-attachment-details">
+                            <span className="cf-attachment-name">
+                              {attachment.filename}
+                            </span>
+                            <span className="cf-attachment-meta">
+                              {attachment.content_type} · {formatBytes(attachment.size)}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
         </div>

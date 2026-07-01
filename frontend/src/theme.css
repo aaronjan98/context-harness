@@ -377,8 +377,37 @@ textarea {
   padding: 16px;
 }
 
-.cf-message {
+.cf-message-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
   margin-bottom: 16px;
+}
+
+.cf-message-select-dot {
+  width: 12px;
+  height: 12px;
+  align-self: start;
+  margin-top: 14px;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.cf-message-select-dot:hover {
+  border-color: var(--cf-accent);
+  box-shadow: var(--cf-glow);
+}
+
+.cf-message-select-dot-active {
+  border-color: var(--cf-accent);
+  background: var(--cf-accent);
+  box-shadow: var(--cf-glow);
+}
+
+.cf-message {
   padding: 12px;
   border: 1px solid var(--cf-border);
   border-radius: 8px;
@@ -391,6 +420,11 @@ textarea {
 
 .cf-message-assistant {
   background: var(--cf-surface);
+}
+
+.cf-message-selected {
+  border-color: var(--cf-accent);
+  box-shadow: var(--cf-glow);
 }
 
 .cf-message-meta {
