@@ -12,12 +12,13 @@
  * See project-memory/frontend-architecture.md § API client layer for details.
  */
 
-import { api } from './client'
+import { api, apiBaseUrl } from './client'
 import type { components } from './schema'
 
 export type ConversationSummary =
   components['schemas']['ConversationSummaryResponse']
 export type Message = components['schemas']['MessageResponse']
+export type Attachment = components['schemas']['AttachmentResponse']
 export type CreateConversationRequest =
   components['schemas']['CreateConversationRequest']
 export type AppendMessageRequest =
@@ -98,6 +99,31 @@ export async function appendMessage(
   )
   if (error) throw toApiError(error, response)
   return data
+}
+
+export async function uploadAttachment(
+  conversationId: string,
+  file: File,
+): Promise<Attachment> {
+  const form = new FormData()
+  form.append('file', file)
+
+  const response = await fetch(
+    resolveApiUrl(`/api/conversations/${conversationId}/attachments`),
+    {
+      method: 'POST',
+      body: form,
+    },
+  )
+
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) throw toApiError(payload, response)
+  return payload as Attachment
+}
+
+export function resolveApiUrl(path: string): string {
+  if (/^https?:\/\//.test(path)) return path
+  return `${apiBaseUrl}${path}`
 }
 
 export async function importMarkdown(

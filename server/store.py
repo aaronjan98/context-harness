@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import re
+import mimetypes
 import shutil
 from typing import Any
 
@@ -45,8 +46,19 @@ class MessageRecord:
     agent: str
     timestamp: str
     format: str
-    attachments: list[str]
+    attachments: list["AttachmentRecord"]
     content: str
+
+
+@dataclass(slots=True)
+class AttachmentRecord:
+    """One file stored inside a conversation attachment directory."""
+
+    id: str
+    filename: str
+    content_type: str
+    size: int
+    relative_path: str
 
 
 @dataclass(slots=True)
@@ -211,11 +223,16 @@ class ConversationStore:
         agent: str,
         content: str,
         message_format: str = "markdown",
+        attachment_ids: list[str] | None = None,
     ) -> MessageRecord:
         """Append one message to the active thread and refresh metadata/export."""
         paths = self.require_existing_conversation(conversation_id)
         metadata = self.load_conversation_metadata(conversation_id)
         message_id = self.next_message_id(conversation_id)
+        attachments = [
+            self.load_attachment(conversation_id, attachment_id)
+            for attachment_id in (attachment_ids or [])
+        ]
         record = MessageRecord(
             id=message_id,
             parent_id=metadata.active_message_id,
@@ -223,7 +240,7 @@ class ConversationStore:
             agent=agent,
             timestamp=datetime.now().astimezone().isoformat(timespec="seconds"),
             format=message_format,
-            attachments=[],
+            attachments=attachments,
             content=content,
         )
         self.write_message(paths, record)
@@ -251,6 +268,67 @@ class ConversationStore:
                 )
             )
         return records
+
+    def save_attachment(
+        self,
+        conversation_id: str,
+        *,
+        filename: str,
+        content_type: str | None,
+        data: bytes,
+    ) -> AttachmentRecord:
+        """Persist an uploaded attachment inside one conversation folder."""
+        paths = self.require_existing_conversation(conversation_id)
+        attachment_id = self.next_attachment_id(conversation_id)
+        attachment_dir = paths.attachments / attachment_id
+        attachment_dir.mkdir(parents=True, exist_ok=False)
+
+        stored_file = attachment_dir / "file"
+        stored_file.write_bytes(data)
+
+        record = AttachmentRecord(
+            id=attachment_id,
+            filename=self.safe_filename(filename),
+            content_type=content_type
+            or mimetypes.guess_type(filename)[0]
+            or "application/octet-stream",
+            size=len(data),
+            relative_path=f"attachments/{attachment_id}/file",
+        )
+        self.write_attachment_metadata(attachment_dir, record)
+        return record
+
+    def next_attachment_id(self, conversation_id: str) -> str:
+        """Allocate the next stable attachment id for a conversation."""
+        paths = self.require_existing_conversation(conversation_id)
+        existing = sorted(paths.attachments.glob("a[0-9][0-9][0-9][0-9]"))
+        if not existing:
+            return "a0001"
+        last_index = max(int(path.name[1:]) for path in existing)
+        return f"a{last_index + 1:04d}"
+
+    def load_attachment(
+        self, conversation_id: str, attachment_id: str
+    ) -> AttachmentRecord:
+        """Load one attachment metadata record."""
+        paths = self.require_existing_conversation(conversation_id)
+        if not self.valid_attachment_id(attachment_id):
+            raise FileNotFoundError(f"Attachment not found: {attachment_id}")
+
+        metadata_file = paths.attachments / attachment_id / "metadata.yaml"
+        if not metadata_file.exists():
+            raise FileNotFoundError(f"Attachment not found: {attachment_id}")
+        values = self.parse_yaml_mapping(metadata_file.read_text(encoding="utf-8"))
+        return self.attachment_from_mapping(values)
+
+    def attachment_path(self, conversation_id: str, attachment_id: str) -> Path:
+        """Return the stored file path for one attachment."""
+        attachment = self.load_attachment(conversation_id, attachment_id)
+        paths = self.paths_for(conversation_id)
+        path = paths.root / attachment.relative_path
+        if not path.exists() or not path.is_file():
+            raise FileNotFoundError(f"Attachment file not found: {attachment_id}")
+        return path
 
     def parse_markdown_import(self, content: str) -> list[ImportedMessage]:
         """Parse common Markdown transcript shapes into messages."""
@@ -370,7 +448,10 @@ class ConversationStore:
             "agent": record.agent,
             "timestamp": record.timestamp,
             "format": record.format,
-            "attachments": record.attachments,
+            "attachments": [
+                self.attachment_to_mapping(attachment)
+                for attachment in record.attachments
+            ],
         }
         text = (
             "---\n"
@@ -396,7 +477,10 @@ class ConversationStore:
             agent=str(values.get("agent") or "unknown"),
             timestamp=str(values.get("timestamp") or ""),
             format=str(values.get("format") or "markdown"),
-            attachments=[str(item) for item in attachments],
+            attachments=[
+                self.attachment_from_frontmatter_item(item)
+                for item in attachments
+            ],
             content=content,
         )
 
@@ -434,9 +518,68 @@ class ConversationStore:
         sections: list[str] = []
         for message in thread:
             speaker = message.agent if message.role != "user" else "User"
-            sections.append(f"## {speaker}\n{message.content}".strip())
+            attachment_lines = [
+                f"- [{attachment.filename}]({attachment.relative_path})"
+                for attachment in message.attachments
+            ]
+            attachments = (
+                "\n\n> [!attachment]\n"
+                + "\n".join(f"> {line}" for line in attachment_lines)
+                if attachment_lines
+                else ""
+            )
+            sections.append(f"## {speaker}\n{message.content}{attachments}".strip())
         export_text = "\n\n".join(sections)
         (paths.exports / "current.md").write_text(export_text, encoding="utf-8")
+
+    def write_attachment_metadata(
+        self, attachment_dir: Path, record: AttachmentRecord
+    ) -> None:
+        """Persist attachment metadata next to the stored file."""
+        (attachment_dir / "metadata.yaml").write_text(
+            yaml.safe_dump(self.attachment_to_mapping(record), sort_keys=False),
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def attachment_to_mapping(record: AttachmentRecord) -> dict[str, Any]:
+        """Convert attachment metadata to a YAML/JSON-friendly mapping."""
+        return {
+            "id": record.id,
+            "filename": record.filename,
+            "content_type": record.content_type,
+            "size": record.size,
+            "relative_path": record.relative_path,
+        }
+
+    @classmethod
+    def attachment_from_mapping(cls, values: dict[str, Any]) -> AttachmentRecord:
+        """Convert stored metadata into an attachment record."""
+        attachment_id = str(values.get("id") or "")
+        if not cls.valid_attachment_id(attachment_id):
+            raise ValueError("Invalid attachment metadata id")
+        return AttachmentRecord(
+            id=attachment_id,
+            filename=cls.safe_filename(str(values.get("filename") or "attachment")),
+            content_type=str(values.get("content_type") or "application/octet-stream"),
+            size=int(values.get("size") or 0),
+            relative_path=str(values.get("relative_path") or f"attachments/{attachment_id}/file"),
+        )
+
+    @classmethod
+    def attachment_from_frontmatter_item(cls, item: Any) -> AttachmentRecord:
+        """Read both structured and legacy string attachment frontmatter."""
+        if isinstance(item, dict):
+            return cls.attachment_from_mapping(item)
+
+        legacy_id = str(item)
+        return AttachmentRecord(
+            id=legacy_id,
+            filename=legacy_id,
+            content_type="application/octet-stream",
+            size=0,
+            relative_path=legacy_id,
+        )
 
     def add_imported_message(
         self,
@@ -503,6 +646,17 @@ class ConversationStore:
             "New conversation",
         )
         return title if len(title) <= 64 else f"{title[:61]}..."
+
+    @staticmethod
+    def safe_filename(filename: str) -> str:
+        """Return a display-safe basename for an uploaded file."""
+        safe = Path(filename).name.strip()
+        return safe or "attachment"
+
+    @staticmethod
+    def valid_attachment_id(attachment_id: str) -> bool:
+        """Return whether an attachment id matches the app-controlled format."""
+        return re.fullmatch(r"a\d{4}", attachment_id) is not None
 
     @staticmethod
     def _to_optional_text(value: Any) -> str | None:

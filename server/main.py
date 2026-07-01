@@ -1,8 +1,8 @@
 """FastAPI application entrypoint for Context Forge."""
 
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse
 
 from server.docs import get_context_forge_docs_html
 from server.store import ConversationStore
@@ -28,6 +28,7 @@ class AppendMessageRequest(BaseModel):
     agent: str | None = Field(default=None, min_length=1)
     content: str = Field(min_length=1)
     message_format: str | None = Field(default=None, min_length=1)
+    attachment_ids: list[str] = Field(default_factory=list)
 
 
 class ImportMarkdownRequest(BaseModel):
@@ -64,8 +65,20 @@ class MessageResponse(BaseModel):
     agent: str
     timestamp: str
     format: str
-    attachments: list[str]
+    attachments: list["AttachmentResponse"]
     content: str
+
+
+class AttachmentResponse(BaseModel):
+    """JSON response shape for one stored attachment."""
+
+    id: str
+    filename: str
+    content_type: str
+    size: int
+    relative_path: str
+    preview_url: str
+    download_url: str
 
 
 class ThreadResponse(BaseModel):
@@ -84,8 +97,24 @@ def serialize_message(message: object) -> MessageResponse:
         agent=message.agent,
         timestamp=message.timestamp,
         format=message.format,
-        attachments=message.attachments,
+        attachments=[
+            serialize_attachment(message.id, attachment).model_dump()
+            for attachment in message.attachments
+        ],
         content=message.content,
+    )
+
+
+def serialize_attachment(message_id: str, attachment: object) -> AttachmentResponse:
+    """Return a JSON-friendly attachment payload."""
+    return AttachmentResponse(
+        id=attachment.id,
+        filename=attachment.filename,
+        content_type=attachment.content_type,
+        size=attachment.size,
+        relative_path=attachment.relative_path,
+        preview_url="",
+        download_url="",
     )
 
 
@@ -100,6 +129,40 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
             status_code=404,
             detail=f"Conversation not found: {conversation_id}",
         )
+
+    def attachment_not_found(attachment_id: str) -> HTTPException:
+        """Return a consistent 404 for missing attachment reads."""
+        return HTTPException(
+            status_code=404,
+            detail=f"Attachment not found: {attachment_id}",
+        )
+
+    def attachment_response(
+        conversation_id: str, attachment: object
+    ) -> AttachmentResponse:
+        """Return attachment metadata with conversation-scoped URLs."""
+        return AttachmentResponse(
+            id=attachment.id,
+            filename=attachment.filename,
+            content_type=attachment.content_type,
+            size=attachment.size,
+            relative_path=attachment.relative_path,
+            preview_url=(
+                f"/api/conversations/{conversation_id}/attachments/{attachment.id}"
+            ),
+            download_url=(
+                f"/api/conversations/{conversation_id}/attachments/{attachment.id}/download"
+            ),
+        )
+
+    def message_response(conversation_id: str, message: object) -> MessageResponse:
+        """Return one message with conversation-scoped attachment URLs."""
+        payload = serialize_message(message)
+        payload.attachments = [
+            attachment_response(conversation_id, attachment)
+            for attachment in message.attachments
+        ]
+        return payload
 
     @app.get("/docs", include_in_schema=False)
     async def docs() -> HTMLResponse:
@@ -179,7 +242,8 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
             return {
                 "conversation": store.conversation_summary(conversation_id),
                 "messages": [
-                    serialize_message(message).model_dump() for message in thread
+                    message_response(conversation_id, message).model_dump()
+                    for message in thread
                 ],
             }
         except FileNotFoundError as error:
@@ -202,10 +266,68 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
                 agent=agent,
                 content=payload.content,
                 message_format=payload.message_format or "markdown",
+                attachment_ids=payload.attachment_ids,
             )
         except FileNotFoundError as error:
             raise conversation_not_found(conversation_id) from error
         return await get_active_thread(conversation_id)
+
+    @app.post(
+        "/api/conversations/{conversation_id}/attachments",
+        response_model=AttachmentResponse,
+    )
+    async def upload_attachment(
+        conversation_id: str,
+        file: UploadFile = File(...),
+    ) -> AttachmentResponse:
+        """Upload one attachment into the conversation attachment store."""
+        try:
+            data = await file.read()
+            attachment = store.save_attachment(
+                conversation_id,
+                filename=file.filename or "attachment",
+                content_type=file.content_type,
+                data=data,
+            )
+            return attachment_response(conversation_id, attachment)
+        except FileNotFoundError as error:
+            raise conversation_not_found(conversation_id) from error
+
+    @app.get("/api/conversations/{conversation_id}/attachments/{attachment_id}")
+    async def preview_attachment(
+        conversation_id: str,
+        attachment_id: str,
+    ) -> FileResponse:
+        """Serve one attachment inline for the local preview overlay."""
+        try:
+            attachment = store.load_attachment(conversation_id, attachment_id)
+            path = store.attachment_path(conversation_id, attachment_id)
+        except FileNotFoundError as error:
+            raise attachment_not_found(attachment_id) from error
+        return FileResponse(
+            path,
+            filename=attachment.filename,
+            media_type=attachment.content_type,
+            content_disposition_type="inline",
+        )
+
+    @app.get("/api/conversations/{conversation_id}/attachments/{attachment_id}/download")
+    async def download_attachment(
+        conversation_id: str,
+        attachment_id: str,
+    ) -> FileResponse:
+        """Serve one attachment as a browser download."""
+        try:
+            attachment = store.load_attachment(conversation_id, attachment_id)
+            path = store.attachment_path(conversation_id, attachment_id)
+        except FileNotFoundError as error:
+            raise attachment_not_found(attachment_id) from error
+        return FileResponse(
+            path,
+            filename=attachment.filename,
+            media_type=attachment.content_type,
+            content_disposition_type="attachment",
+        )
 
     @app.post(
         "/api/conversations/{conversation_id}/imports/markdown",

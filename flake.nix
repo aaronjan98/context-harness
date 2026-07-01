@@ -16,6 +16,7 @@
         httpx
         mcp
         pytest
+        python-multipart
         pyyaml
         websockets
       ]);

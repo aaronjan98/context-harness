@@ -153,6 +153,56 @@ def test_append_message_returns_updated_thread_and_persists(client) -> None:
     assert payload["messages"][1]["content"] == "Each message is a file with frontmatter."
 
 
+def test_upload_attachment_and_attach_to_message(client) -> None:
+    client.post("/api/conversations", json={"conversation_id": "api-attachments"})
+
+    upload = client.post(
+        "/api/conversations/api-attachments/attachments",
+        files={"file": ("notes.md", b"# Notes\n", "text/markdown")},
+    )
+    assert upload.status_code == 200
+    attachment = upload.json()
+    assert attachment["id"] == "a0001"
+    assert attachment["filename"] == "notes.md"
+    assert attachment["content_type"] == "text/markdown"
+    assert attachment["preview_url"].endswith("/attachments/a0001")
+    assert attachment["download_url"].endswith("/attachments/a0001/download")
+
+    appended = client.post(
+        "/api/conversations/api-attachments/messages",
+        json={
+            "role": "user",
+            "content": "See attached notes.",
+            "attachment_ids": ["a0001"],
+        },
+    )
+    assert appended.status_code == 200
+    message = appended.json()["messages"][0]
+    assert message["attachments"][0]["id"] == "a0001"
+    assert message["attachments"][0]["filename"] == "notes.md"
+
+    preview = client.get("/api/conversations/api-attachments/attachments/a0001")
+    download = client.get(
+        "/api/conversations/api-attachments/attachments/a0001/download"
+    )
+
+    assert preview.status_code == 200
+    assert preview.content == b"# Notes\n"
+    assert "inline" in preview.headers["content-disposition"]
+    assert download.status_code == 200
+    assert "attachment" in download.headers["content-disposition"]
+
+
+def test_upload_attachment_missing_conversation_does_not_create_it(client, store) -> None:
+    response = client.post(
+        "/api/conversations/missing-attachments/attachments",
+        files={"file": ("notes.md", b"# Notes\n", "text/markdown")},
+    )
+
+    assert response.status_code == 404
+    assert not store.conversation_dir("missing-attachments").exists()
+
+
 def test_import_markdown_returns_updated_thread(client) -> None:
     client.post("/api/conversations", json={"conversation_id": "api-import"})
 

@@ -61,6 +61,38 @@ def test_append_message_updates_metadata_and_export(store: ConversationStore) ->
     assert "one file per message" in export_text
 
 
+def test_save_attachment_and_attach_to_message(store: ConversationStore) -> None:
+    conversation_id = "unit-attachments"
+    paths = store.initialize_conversation(conversation_id)
+
+    attachment = store.save_attachment(
+        conversation_id,
+        filename="../notes.md",
+        content_type="text/markdown",
+        data=b"# Notes\n",
+    )
+    message = store.append_message(
+        conversation_id,
+        role="user",
+        agent="human",
+        content="See the attached note.",
+        attachment_ids=[attachment.id],
+    )
+    reloaded = store.active_thread(conversation_id)[0]
+    export_text = (paths.exports / "current.md").read_text(encoding="utf-8")
+
+    assert attachment.id == "a0001"
+    assert attachment.filename == "notes.md"
+    assert attachment.content_type == "text/markdown"
+    assert attachment.size == 8
+    assert (paths.attachments / "a0001" / "file").read_bytes() == b"# Notes\n"
+    assert (paths.attachments / "a0001" / "metadata.yaml").is_file()
+    assert message.attachments[0].id == "a0001"
+    assert reloaded.attachments[0].filename == "notes.md"
+    assert "> [!attachment]" in export_text
+    assert "[notes.md](attachments/a0001/file)" in export_text
+
+
 def test_append_user_message_autotitles_placeholder_conversation(
     store: ConversationStore,
 ) -> None:

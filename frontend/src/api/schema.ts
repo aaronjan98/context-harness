@@ -116,6 +116,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/conversations/{conversation_id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Attachment
+         * @description Upload one attachment into the conversation attachment store.
+         */
+        post: operations["upload_attachment_api_conversations__conversation_id__attachments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/conversations/{conversation_id}/attachments/{attachment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview Attachment
+         * @description Serve one attachment inline for the local preview overlay.
+         */
+        get: operations["preview_attachment_api_conversations__conversation_id__attachments__attachment_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/conversations/{conversation_id}/attachments/{attachment_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Attachment
+         * @description Serve one attachment as a browser download.
+         */
+        get: operations["download_attachment_api_conversations__conversation_id__attachments__attachment_id__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/conversations/{conversation_id}/imports/markdown": {
         parameters: {
             query?: never;
@@ -153,6 +213,36 @@ export interface components {
             content: string;
             /** Message Format */
             message_format?: string | null;
+            /** Attachment Ids */
+            attachment_ids?: string[];
+        };
+        /**
+         * AttachmentResponse
+         * @description JSON response shape for one stored attachment.
+         */
+        AttachmentResponse: {
+            /** Id */
+            id: string;
+            /** Filename */
+            filename: string;
+            /** Content Type */
+            content_type: string;
+            /** Size */
+            size: number;
+            /** Relative Path */
+            relative_path: string;
+            /** Preview Url */
+            preview_url: string;
+            /** Download Url */
+            download_url: string;
+        };
+        /** Body_upload_attachment_api_conversations__conversation_id__attachments_post */
+        Body_upload_attachment_api_conversations__conversation_id__attachments_post: {
+            /**
+             * File
+             * Format: binary
+             */
+            file: string;
         };
         /**
          * ConversationPathsResponse
@@ -224,7 +314,7 @@ export interface components {
             /** Format */
             format: string;
             /** Attachments */
-            attachments: string[];
+            attachments: components["schemas"]["AttachmentResponse"][];
             /** Content */
             content: string;
         };
@@ -486,6 +576,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ThreadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_attachment_api_conversations__conversation_id__attachments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_attachment_api_conversations__conversation_id__attachments_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_attachment_api_conversations__conversation_id__attachments__attachment_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_attachment_api_conversations__conversation_id__attachments__attachment_id__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

@@ -9,11 +9,13 @@ Markdown export in sync.
 Backend progress:
 - create/open conversation flow is implemented
 - canonical message append/read/export flow is implemented
+- app-managed attachment storage and preview/download routes are implemented
 - backend tests cover the current storage and API foundation
 
 Frontend progress:
 - React/Vite browser shell is implemented enough for create/read/append,
-  rename/delete, Markdown rendering, and manual transcript import
+  rename/delete, Markdown rendering, manual transcript import, file attachment,
+  and attachment preview overlay
 - UI work should remain conservative because the user is shaping the visual
   design
 
@@ -30,11 +32,14 @@ Immediate backend gap:
 - regenerate `exports/current.md`
 - basic Markdown import with light speaker-pattern matching
 - paste/import UX for web-chatbot or agent transcripts
+- app-managed attachments: upload local files, attach them to messages, render
+  attachment cards, preview supported files, and expose download/open links
 
 ## Out of scope
 - branching/forking
 - graph view
-- advanced attachment handling
+- advanced attachment handling such as web-chatbot file scraping, OCR, indexing,
+  deduplication, or rich previews for every file type
 - Vim editor mode
 - multi-agent orchestration
 - export-time wiki-link bundling
@@ -46,6 +51,8 @@ Immediate backend gap:
 - exported Markdown is good enough to hand to another agent/chat tool
 - a copied/exported web-chatbot transcript can be appended into the canonical
   conversation without direct browser automation
+- a user can attach a local file to a message and inspect it later from the
+  thread
 
 ## Immediate implementation questions
 - what is the smallest useful agent adapter or mocked reply path

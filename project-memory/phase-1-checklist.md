@@ -31,13 +31,18 @@ checklist under `project-memory/phase-1-mvp.md`.
 - [x] Add manual browser import UX for pasted Markdown transcripts
 - [x] Add active-tab ChatGPT DOM export prototype
 - [x] Add cross-browser ChatGPT export bookmarklet for v1
+- [x] Add app-managed attachment foundation
+- [x] Render message attachment cards and fixed preview overlay
 
 ## Current checkpoint
 The backend can now append canonical message nodes, read the active thread,
 regenerate the current Markdown export, list conversations, rename
 conversations, delete conversations, import Markdown transcripts, and expose
-typed response models through OpenAPI. API integration tests cover the current
-Phase 1 contract.
+typed response models through OpenAPI. It can also copy uploaded files into the
+conversation-local `attachments/` directory, store attachment metadata in
+message frontmatter, serve inline previews/downloads, and include attachment
+references in the generated Markdown export. API integration tests cover the
+current Phase 1 contract.
 
 The real browser/backend loop has been manually verified: empty state, explicit
 conversation creation from the sidebar, message submission, sidebar auto-title
@@ -59,3 +64,7 @@ script remains available for debugging when the chatbot DOM changes.
 Phase 1 should keep local capability work out of scope beyond preserving the
 backend as the only authority that will eventually mediate configured files,
 skills, directories, imports, exports, and approved tool actions.
+
+The next checkpoint should be either manual verification of the attachment UI
+against the live backend or the first small assistant-adapter boundary. Do not
+extend browser scraping to copy attachment file contents from web chatbots.

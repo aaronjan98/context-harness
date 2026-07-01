@@ -30,8 +30,29 @@ import {
   fetchMessages,
   appendMessage,
   importMarkdown,
+  resolveApiUrl,
+  uploadAttachment,
 } from '@/api/conversations'
-import type { Message } from '@/api/conversations'
+import type { Attachment, Message } from '@/api/conversations'
+
+function formatBytes(size: number): string {
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
+function attachmentKind(attachment: Attachment): 'image' | 'text' | 'pdf' | 'other' {
+  if (attachment.content_type.startsWith('image/')) return 'image'
+  if (
+    attachment.content_type.startsWith('text/') ||
+    attachment.content_type.includes('markdown') ||
+    attachment.content_type.includes('json')
+  ) {
+    return 'text'
+  }
+  if (attachment.content_type === 'application/pdf') return 'pdf'
+  return 'other'
+}
 
 export function ThreadView() {
   const { id } = conversationRoute.useParams()
@@ -41,12 +62,16 @@ export function ThreadView() {
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [importContent, setImportContent] = useState('')
   const [importError, setImportError] = useState<string | null>(null)
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([])
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
+  const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null)
 
   const focusedMessageId = useUIStore((s) => s.focusedMessageId)
   const draft = useUIStore((s) => s.draftsByConversationId[id] ?? '')
   const setDraft = useUIStore((s) => s.setDraft)
   const clearDraft = useUIStore((s) => s.clearDraft)
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   // Fetch messages for this conversation
   const { data: messages, error, isLoading, isError } = useQuery({
@@ -57,12 +82,41 @@ export function ThreadView() {
 
   // Append a new message
   const { mutate: sendMessage, isPending: isSending } = useMutation({
-    mutationFn: (content: string) =>
-      appendMessage(id, { role: 'user', content }),
+    mutationFn: (payload: { content: string; attachmentIds: string[] }) =>
+      appendMessage(id, {
+        role: 'user',
+        content: payload.content,
+        attachment_ids: payload.attachmentIds,
+      }),
     onSuccess: () => {
       clearDraft(id)
+      setPendingAttachments([])
+      setAttachmentError(null)
       queryClient.invalidateQueries({ queryKey: ['conversations'] })
       queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
+    },
+  })
+
+  const { mutate: uploadFiles, isPending: isUploadingAttachment } = useMutation({
+    mutationFn: async (files: File[]) => {
+      const uploaded: Attachment[] = []
+      for (const file of files) {
+        uploaded.push(await uploadAttachment(id, file))
+      }
+      return uploaded
+    },
+    onSuccess: (uploaded) => {
+      setPendingAttachments((current) => [...current, ...uploaded])
+      setAttachmentError(null)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    },
+    onError: (mutationError) => {
+      setAttachmentError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : 'Failed to upload attachment.',
+      )
+      if (fileInputRef.current) fileInputRef.current.value = ''
     },
   })
 
@@ -103,8 +157,14 @@ export function ThreadView() {
 
   function handleSubmit() {
     const content = draft.trim()
-    if (!content || isSending) return
-    sendMessage(content)
+    const attachmentIds = pendingAttachments.map((attachment) => attachment.id)
+    if ((!content && attachmentIds.length === 0) || isSending || isUploadingAttachment) {
+      return
+    }
+    sendMessage({
+      content: content || 'Attached file(s).',
+      attachmentIds,
+    })
   }
 
   function handleImportSubmit() {
@@ -124,13 +184,14 @@ export function ThreadView() {
   }
 
   return (
-    <PanelGroup
-      direction="horizontal"
-      autoSaveId={`thread-layout-${id}`}
-      style={{ height: '100%' }}
-    >
-      {/* Thread panel */}
-      <Panel id="thread" minSize={30} className="cf-thread-panel">
+    <>
+      <PanelGroup
+        direction="horizontal"
+        autoSaveId={`thread-layout-${id}`}
+        style={{ height: '100%' }}
+      >
+        {/* Thread panel */}
+        <Panel id="thread" minSize={30} className="cf-thread-panel">
         {/* Graph panel toggle */}
         <div className="cf-thread-toolbar">
           <button
@@ -222,38 +283,175 @@ export function ThreadView() {
                   {msg.role} · {msg.agent ?? 'unknown'} · {msg.timestamp}
                 </div>
                 <MessageContent content={msg.content} />
+                {msg.attachments.length > 0 && (
+                  <div className="cf-attachment-list">
+                    {msg.attachments.map((attachment) => (
+                      <button
+                        key={attachment.id}
+                        type="button"
+                        className="cf-attachment-card"
+                        onClick={() => setPreviewAttachment(attachment)}
+                      >
+                        <span className="cf-attachment-icon">
+                          {attachmentKind(attachment) === 'image' ? 'IMG' : 'FILE'}
+                        </span>
+                        <span className="cf-attachment-details">
+                          <span className="cf-attachment-name">
+                            {attachment.filename}
+                          </span>
+                          <span className="cf-attachment-meta">
+                            {attachment.content_type} · {formatBytes(attachment.size)}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
         </div>
 
         {/* Editor */}
         <div className="cf-editor-tray">
+          {pendingAttachments.length > 0 && (
+            <div className="cf-pending-attachments">
+              {pendingAttachments.map((attachment) => (
+                <div key={attachment.id} className="cf-pending-attachment">
+                  <span>{attachment.filename}</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPendingAttachments((current) =>
+                        current.filter((item) => item.id !== attachment.id),
+                      )
+                    }
+                    aria-label={`Remove ${attachment.filename}`}
+                  >
+                    x
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {attachmentError && (
+            <div className="cf-import-error">{attachmentError}</div>
+          )}
+          <div className="cf-editor-actions">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="cf-hidden-file-input"
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? [])
+                if (files.length > 0) uploadFiles(files)
+              }}
+            />
+            <button
+              type="button"
+              className="cf-secondary-button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploadingAttachment || isSending}
+            >
+              {isUploadingAttachment ? 'Attaching...' : 'Attach file'}
+            </button>
+          </div>
           <Editor
             value={draft}
             onChange={(value) => setDraft(id, value)}
             onSubmit={handleSubmit}
-            disabled={isSending}
+            disabled={isSending || isUploadingAttachment}
           />
         </div>
-      </Panel>
+        </Panel>
 
-      {/* Graph panel — only mounts when ?panel=graph */}
-      {panel === 'graph' && (
-        <>
-          <PanelResizeHandle
-            className="cf-resize-handle"
-          />
-          <Panel
-            id="graph"
-            collapsible
-            minSize={20}
-            defaultSize={35}
-            style={{ overflow: 'hidden' }}
-          >
-            <GraphPanel />
-          </Panel>
-        </>
+        {/* Graph panel — only mounts when ?panel=graph */}
+        {panel === 'graph' && (
+          <>
+            <PanelResizeHandle
+              className="cf-resize-handle"
+            />
+            <Panel
+              id="graph"
+              collapsible
+              minSize={20}
+              defaultSize={35}
+              style={{ overflow: 'hidden' }}
+            >
+              <GraphPanel />
+            </Panel>
+          </>
+        )}
+      </PanelGroup>
+
+      {previewAttachment && (
+        <div className="cf-attachment-overlay" role="dialog" aria-modal="true">
+          <div className="cf-attachment-modal">
+            <div className="cf-attachment-modal-header">
+              <div>
+                <div className="cf-attachment-modal-title">
+                  {previewAttachment.filename}
+                </div>
+                <div className="cf-attachment-modal-meta">
+                  {previewAttachment.content_type} · {formatBytes(previewAttachment.size)}
+                </div>
+              </div>
+              <div className="cf-attachment-modal-actions">
+                <a
+                  className="cf-secondary-button"
+                  href={resolveApiUrl(previewAttachment.download_url)}
+                >
+                  Download
+                </a>
+                <a
+                  className="cf-secondary-button"
+                  href={resolveApiUrl(previewAttachment.preview_url)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open
+                </a>
+                <button
+                  type="button"
+                  className="cf-primary-button"
+                  onClick={() => setPreviewAttachment(null)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="cf-attachment-preview-body">
+              {attachmentKind(previewAttachment) === 'image' && (
+                <img
+                  src={resolveApiUrl(previewAttachment.preview_url)}
+                  alt={previewAttachment.filename}
+                  className="cf-attachment-image-preview"
+                />
+              )}
+              {attachmentKind(previewAttachment) === 'pdf' && (
+                <iframe
+                  title={previewAttachment.filename}
+                  src={resolveApiUrl(previewAttachment.preview_url)}
+                  className="cf-attachment-frame-preview"
+                />
+              )}
+              {attachmentKind(previewAttachment) === 'text' && (
+                <iframe
+                  title={previewAttachment.filename}
+                  src={resolveApiUrl(previewAttachment.preview_url)}
+                  className="cf-attachment-frame-preview"
+                />
+              )}
+              {attachmentKind(previewAttachment) === 'other' && (
+                <div className="cf-attachment-unsupported">
+                  Preview is not available for this file type yet. Use Open or
+                  Download to inspect the attachment.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
-    </PanelGroup>
+    </>
   )
 }

@@ -34,10 +34,15 @@ Completed:
   Documents-backed storage
 - backend Markdown import implemented for heading-based transcripts,
   `Speaker:` transcripts, and paragraph fallback
+- manual chatbot import implemented with a pasted Markdown import panel and
+  active-tab ChatGPT bookmarklet exporter
+- app-managed attachment foundation implemented: upload local files, persist
+  metadata under conversation-local `attachments/`, attach files to messages,
+  render attachment cards, and preview/download files through backend routes
 
 Current focus:
-- decide whether the next Phase 1 checkpoint is a small import UI or a mock
-  assistant adapter boundary
+- manually verify the attachment UI against the live backend, then decide
+  whether the next Phase 1 checkpoint is the first assistant adapter boundary
 - keep canonical conversation storage under
   `~/Documents/context-harness/conversations`
 - backend robustness to support the live frontend
@@ -62,9 +67,9 @@ Explicit boundary:
   configured backend capabilities, not browser powers
 
 ## Next steps
-- Verify Markdown import against a real copied transcript.
-- Choose the next checkpoint: a small browser import surface, or a mock
-  assistant adapter that proves the in-app AI reply loop.
+- Verify attachment upload/card/preview behavior in the live browser UI.
+- Choose the first assistant adapter or mocked reply path that proves the
+  in-app AI reply loop.
 
 ## Active documents
 - `project-memory/frontend-architecture.md` — canonical frontend reference for
