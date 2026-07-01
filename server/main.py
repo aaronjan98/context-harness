@@ -329,6 +329,34 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
             content_disposition_type="attachment",
         )
 
+    @app.get("/api/conversations/{conversation_id}/exports/current.md")
+    async def preview_current_export(conversation_id: str) -> FileResponse:
+        """Serve the current active-thread Markdown export inline."""
+        try:
+            paths = store.require_existing_conversation(conversation_id)
+        except FileNotFoundError as error:
+            raise conversation_not_found(conversation_id) from error
+        return FileResponse(
+            paths.exports / "current.md",
+            filename="current.md",
+            media_type="text/markdown",
+            content_disposition_type="inline",
+        )
+
+    @app.get("/api/conversations/{conversation_id}/exports/current.md/download")
+    async def download_current_export(conversation_id: str) -> FileResponse:
+        """Serve the current active-thread Markdown export as a download."""
+        try:
+            paths = store.require_existing_conversation(conversation_id)
+        except FileNotFoundError as error:
+            raise conversation_not_found(conversation_id) from error
+        return FileResponse(
+            paths.exports / "current.md",
+            filename=f"{conversation_id}.md",
+            media_type="text/markdown",
+            content_disposition_type="attachment",
+        )
+
     @app.post(
         "/api/conversations/{conversation_id}/imports/markdown",
         response_model=ThreadResponse,

@@ -203,6 +203,31 @@ def test_upload_attachment_missing_conversation_does_not_create_it(client, store
     assert not store.conversation_dir("missing-attachments").exists()
 
 
+def test_current_export_preview_and_download(client) -> None:
+    client.post("/api/conversations", json={"conversation_id": "api-export"})
+    client.post(
+        "/api/conversations/api-export/messages",
+        json={"role": "user", "content": "Use this in another chatbot."},
+    )
+
+    preview = client.get("/api/conversations/api-export/exports/current.md")
+    download = client.get("/api/conversations/api-export/exports/current.md/download")
+
+    assert preview.status_code == 200
+    assert "Use this in another chatbot." in preview.text
+    assert "inline" in preview.headers["content-disposition"]
+    assert download.status_code == 200
+    assert "attachment" in download.headers["content-disposition"]
+    assert 'filename="api-export.md"' in download.headers["content-disposition"]
+
+
+def test_current_export_missing_conversation_does_not_create_it(client, store) -> None:
+    response = client.get("/api/conversations/missing-export/exports/current.md")
+
+    assert response.status_code == 404
+    assert not store.conversation_dir("missing-export").exists()
+
+
 def test_import_markdown_returns_updated_thread(client) -> None:
     client.post("/api/conversations", json={"conversation_id": "api-import"})
 

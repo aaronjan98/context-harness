@@ -141,6 +141,25 @@ export async function importMarkdown(
   return data
 }
 
+export function currentExportUrl(conversationId: string): string {
+  return resolveApiUrl(`/api/conversations/${conversationId}/exports/current.md`)
+}
+
+export function currentExportDownloadUrl(conversationId: string): string {
+  return resolveApiUrl(
+    `/api/conversations/${conversationId}/exports/current.md/download`,
+  )
+}
+
+export async function fetchCurrentExportMarkdown(
+  conversationId: string,
+): Promise<string> {
+  const response = await fetch(currentExportUrl(conversationId))
+  const text = await response.text()
+  if (!response.ok) throw toApiError(text, response)
+  return text
+}
+
 // ── Create conversation ───────────────────────────────────────────────────────
 
 export async function createConversation(body: CreateConversationRequest) {

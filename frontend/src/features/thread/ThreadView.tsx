@@ -29,6 +29,8 @@ import {
   ApiError,
   fetchMessages,
   appendMessage,
+  currentExportDownloadUrl,
+  fetchCurrentExportMarkdown,
   importMarkdown,
   resolveApiUrl,
   uploadAttachment,
@@ -62,6 +64,7 @@ export function ThreadView() {
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [importContent, setImportContent] = useState('')
   const [importError, setImportError] = useState<string | null>(null)
+  const [exportStatus, setExportStatus] = useState<string | null>(null)
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null)
@@ -173,6 +176,22 @@ export function ThreadView() {
     submitImport(content)
   }
 
+  async function handleCopyExport() {
+    setExportStatus(null)
+    try {
+      const markdown = await fetchCurrentExportMarkdown(id)
+      await navigator.clipboard.writeText(markdown)
+      setExportStatus('Copied Markdown export.')
+      window.setTimeout(() => setExportStatus(null), 2400)
+    } catch (exportError) {
+      setExportStatus(
+        exportError instanceof Error
+          ? exportError.message
+          : 'Failed to copy Markdown export.',
+      )
+    }
+  }
+
   const isMissingConversation = error instanceof ApiError && error.status === 404
 
   if (isMissingConversation) {
@@ -212,7 +231,23 @@ export function ThreadView() {
           >
             {panel === 'graph' ? 'Close graph' : 'View graph'}
           </Link>
+          <button
+            type="button"
+            className="cf-link-pill cf-toolbar-button"
+            onClick={handleCopyExport}
+          >
+            Copy export
+          </button>
+          <a
+            className="cf-link-pill"
+            href={currentExportDownloadUrl(id)}
+          >
+            Download export
+          </a>
         </div>
+        {exportStatus && (
+          <div className="cf-export-status">{exportStatus}</div>
+        )}
 
         {isImportOpen && (
           <div className="cf-import-panel">
