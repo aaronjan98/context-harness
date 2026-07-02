@@ -11,11 +11,11 @@ import { closeBrackets } from '@codemirror/autocomplete'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
 import { bracketMatching, defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language'
-import { Compartment, EditorState, Prec } from '@codemirror/state'
+import { Compartment, EditorSelection, EditorState, Prec } from '@codemirror/state'
 import { EditorView, drawSelection, keymap, lineNumbers, placeholder } from '@codemirror/view'
 import { getCM, Vim, vim } from '@replit/codemirror-vim'
 import { useSettingsStore } from '@/store/settings'
-import type { EditorProps } from './types'
+import type { EditorProps, EditorVimMode } from './types'
 import { latexSuiteAutosnippets } from './latexSuiteShortcuts'
 
 const editableCompartment = new Compartment()
@@ -24,11 +24,62 @@ const latexSuiteCompartment = new Compartment()
 const cursorThemeCompartment = new Compartment()
 type VimCodeMirror = Parameters<typeof Vim.handleKey>[0]
 
+interface VimCloseActions {
+  saveAndClose?: () => void
+  discardAndClose?: () => void
+}
+
+interface VimRuntimeState {
+  exMode?: boolean
+  insertMode?: boolean
+  visualMode?: boolean
+}
+
+interface VimModeChangeEvent {
+  mode?: string
+}
+
+interface VimCodeMirrorEvents {
+  on?: (event: string, handler: (event: VimModeChangeEvent) => void) => void
+  off?: (event: string, handler: (event: VimModeChangeEvent) => void) => void
+}
+
+const vimCloseActionsByEditor = new WeakMap<VimCodeMirror, VimCloseActions>()
+let areContextForgeVimCommandsRegistered = false
+
+function registerContextForgeVimCommands() {
+  if (areContextForgeVimCommandsRegistered) return
+  areContextForgeVimCommandsRegistered = true
+
+  Vim.defineEx('quit', 'q', (cm) => {
+    vimCloseActionsByEditor
+      .get(cm as VimCodeMirror)
+      ?.discardAndClose?.()
+  })
+  Vim.defineEx('wq', 'wq', (cm) => {
+    vimCloseActionsByEditor
+      .get(cm as VimCodeMirror)
+      ?.saveAndClose?.()
+  })
+  Vim.defineEx('xit', 'x', (cm) => {
+    vimCloseActionsByEditor
+      .get(cm as VimCodeMirror)
+      ?.saveAndClose?.()
+  })
+}
+
 export function RichEditor({
   value,
   onChange,
   onSubmit,
   onExpand,
+  selection,
+  onSelectionChange,
+  focusRequest,
+  vimMode,
+  onVimModeChange,
+  onSaveAndClose,
+  onDiscardAndClose,
   disabled = false,
   placeholder: placeholderText,
   variant = 'composer',
@@ -38,6 +89,14 @@ export function RichEditor({
   const onChangeRef = useRef(onChange)
   const onSubmitRef = useRef(onSubmit)
   const onExpandRef = useRef(onExpand)
+  const onSelectionChangeRef = useRef(onSelectionChange)
+  const onVimModeChangeRef = useRef(onVimModeChange)
+  const onSaveAndCloseRef = useRef(onSaveAndClose)
+  const onDiscardAndCloseRef = useRef(onDiscardAndClose)
+  const selectionRef = useRef(selection)
+  const vimModeRef = useRef(vimMode)
+  const lastHandledFocusRequestRef = useRef<unknown>(undefined)
+  const pendingVimCloseChordRef = useRef(false)
   const latexSuiteEnabled = useSettingsStore((state) => state.latexSuiteEnabled)
   const cursorColor = useSettingsStore((state) => state.cursorColor)
 
@@ -54,13 +113,39 @@ export function RichEditor({
   }, [onExpand])
 
   useEffect(() => {
+    onSelectionChangeRef.current = onSelectionChange
+  }, [onSelectionChange])
+
+  useEffect(() => {
+    selectionRef.current = selection
+  }, [selection])
+
+  useEffect(() => {
+    vimModeRef.current = vimMode
+  }, [vimMode])
+
+  useEffect(() => {
+    onVimModeChangeRef.current = onVimModeChange
+  }, [onVimModeChange])
+
+  useEffect(() => {
+    onSaveAndCloseRef.current = onSaveAndClose
+  }, [onSaveAndClose])
+
+  useEffect(() => {
+    onDiscardAndCloseRef.current = onDiscardAndClose
+  }, [onDiscardAndClose])
+
+  useEffect(() => {
     if (!hostRef.current || viewRef.current) return
+    registerContextForgeVimCommands()
 
     function sendVimEscape(editorView: EditorView) {
       const cm = getCM(editorView)
       if (!cm?.state.vim) return false
 
       Vim.handleKey(cm as VimCodeMirror, '<Esc>', 'user')
+      onVimModeChangeRef.current?.('normal')
       editorView.focus()
       return true
     }
@@ -108,7 +193,88 @@ export function RichEditor({
       event.stopPropagation()
       event.stopImmediatePropagation()
       Vim.handleKey(cm as VimCodeMirror, '<Esc>', 'user')
+      onVimModeChangeRef.current?.('normal')
       view.focus()
+      return true
+    }
+
+    function handleVimCloseChordEvent(event: KeyboardEvent) {
+      if (!onSaveAndCloseRef.current && !onDiscardAndCloseRef.current) {
+        pendingVimCloseChordRef.current = false
+        return false
+      }
+
+      if (
+        event.ctrlKey ||
+        event.altKey ||
+        event.metaKey ||
+        event.key !== 'Z'
+      ) {
+        pendingVimCloseChordRef.current = false
+        return false
+      }
+
+      const cm = getCM(view)
+      const vimState = cm?.state.vim as VimRuntimeState | undefined
+      if (
+        !vimState ||
+        vimState.insertMode ||
+        vimState.visualMode ||
+        vimState.exMode
+      ) {
+        pendingVimCloseChordRef.current = false
+        return false
+      }
+
+      if (!pendingVimCloseChordRef.current) {
+        pendingVimCloseChordRef.current = true
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation()
+        return true
+      }
+
+      pendingVimCloseChordRef.current = false
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+      onSaveAndCloseRef.current?.()
+      return true
+    }
+
+    function handleVimDiscardChordEvent(event: KeyboardEvent) {
+      if (!onDiscardAndCloseRef.current) {
+        pendingVimCloseChordRef.current = false
+        return false
+      }
+
+      if (
+        !pendingVimCloseChordRef.current ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.metaKey ||
+        event.key !== 'Q'
+      ) {
+        return false
+      }
+
+      const cm = getCM(view)
+      const vimState = cm?.state.vim as VimRuntimeState | undefined
+      if (
+        !vimState ||
+        vimState.insertMode ||
+        vimState.visualMode ||
+        vimState.exMode
+      ) {
+        pendingVimCloseChordRef.current = false
+        return false
+      }
+
+      pendingVimCloseChordRef.current = false
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+      onDiscardAndCloseRef.current?.()
       return true
     }
 
@@ -164,6 +330,12 @@ export function RichEditor({
     const view = new EditorView({
       state: EditorState.create({
         doc: value,
+        selection: selection
+          ? EditorSelection.single(
+              clampSelectionPosition(selection.anchor, value.length),
+              clampSelectionPosition(selection.head, value.length),
+            )
+          : undefined,
         extensions: [
           Prec.highest(vim()),
           lineNumbers(),
@@ -203,14 +375,20 @@ export function RichEditor({
               event.preventDefault()
               event.stopPropagation()
               Vim.handleKey(cm as VimCodeMirror, '<Esc>', 'user')
+              onVimModeChangeRef.current?.('normal')
               editorView.focus()
               return true
             },
           }),
           EditorView.lineWrapping,
           EditorView.updateListener.of((update) => {
-            if (!update.docChanged) return
-            onChangeRef.current(update.state.doc.toString())
+            if (update.docChanged) onChangeRef.current(update.state.doc.toString())
+            if (update.selectionSet) {
+              onSelectionChangeRef.current?.({
+                anchor: update.state.selection.main.anchor,
+                head: update.state.selection.main.head,
+              })
+            }
           }),
         ],
       }),
@@ -218,9 +396,23 @@ export function RichEditor({
     })
 
     viewRef.current = view
+    const cm = getCM(view)
+    const handleVimModeChange = (event: VimModeChangeEvent) => {
+      const nextMode = vimModeFromEvent(event)
+      if (nextMode) onVimModeChangeRef.current?.(nextMode)
+    }
+    if (cm) {
+      vimCloseActionsByEditor.set(cm as VimCodeMirror, {
+        saveAndClose: () => onSaveAndCloseRef.current?.(),
+        discardAndClose: () => onDiscardAndCloseRef.current?.(),
+      })
+      ;(cm as VimCodeMirrorEvents).on?.('vim-mode-change', handleVimModeChange)
+    }
     let lastPointerDownAt = 0
 
     const captureVimEscape = (event: KeyboardEvent) => {
+      if (handleVimDiscardChordEvent(event)) return
+      if (handleVimCloseChordEvent(event)) return
       if (handleExpandEditorEvent(event)) return
       handleVimEscapeEvent('content-dom-capture', event)
     }
@@ -233,6 +425,8 @@ export function RichEditor({
 
       debugVimEscape('window-capture', event)
       if (!editorHasFocus) return
+      if (handleVimDiscardChordEvent(event)) return
+      if (handleVimCloseChordEvent(event)) return
       if (handleExpandEditorEvent(event)) return
       handleVimEscapeEvent('window-capture-active-editor', event)
     }
@@ -277,6 +471,7 @@ export function RichEditor({
         if (!cm?.state.vim) return
 
         Vim.handleKey(cm as VimCodeMirror, '<Esc>', 'user')
+        onVimModeChangeRef.current?.('normal')
         view.focus()
         if (window.localStorage.getItem('cf.debugVimEscape') === '1') {
           console.debug('[cf:vim-escape]', {
@@ -299,7 +494,10 @@ export function RichEditor({
     })
     view.dom.addEventListener('focusout', logFocusOut)
     view.dom.addEventListener('focusout', recoverKeyboardBlur)
-    requestAnimationFrame(() => view.focus())
+    requestAnimationFrame(() => {
+      view.focus()
+      restoreVimMode(view, vimModeRef.current)
+    })
     return () => {
       view.contentDOM.removeEventListener('keydown', captureVimEscape, {
         capture: true,
@@ -312,6 +510,11 @@ export function RichEditor({
       })
       view.dom.removeEventListener('focusout', logFocusOut)
       view.dom.removeEventListener('focusout', recoverKeyboardBlur)
+      const cm = getCM(view)
+      if (cm) {
+        vimCloseActionsByEditor.delete(cm as VimCodeMirror)
+        ;(cm as VimCodeMirrorEvents).off?.('vim-mode-change', handleVimModeChange)
+      }
       view.destroy()
       viewRef.current = null
     }
@@ -360,6 +563,28 @@ export function RichEditor({
 
   useEffect(() => {
     const view = viewRef.current
+    if (!view || focusRequest === undefined) return
+    if (lastHandledFocusRequestRef.current === focusRequest) return
+    lastHandledFocusRequestRef.current = focusRequest
+
+    const docLength = view.state.doc.length
+    const nextSelection = selectionRef.current
+    const nextVimMode = vimModeRef.current
+    view.focus()
+    if (nextSelection) {
+      view.dispatch({
+        selection: EditorSelection.single(
+          clampSelectionPosition(nextSelection.anchor, docLength),
+          clampSelectionPosition(nextSelection.head, docLength),
+        ),
+        scrollIntoView: true,
+      })
+    }
+    restoreVimMode(view, nextVimMode)
+  }, [focusRequest])
+
+  useEffect(() => {
+    const view = viewRef.current
     if (!view) return
     view.dispatch({
       effects: placeholderCompartment.reconfigure(
@@ -387,6 +612,33 @@ function describeElement(element: EventTarget | null) {
   return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}${
     classes ? `.${classes}` : ''
   }`
+}
+
+function clampSelectionPosition(position: number, docLength: number) {
+  return Math.max(0, Math.min(position, docLength))
+}
+
+function vimModeFromEvent(event: VimModeChangeEvent): EditorVimMode | null {
+  if (event.mode === 'insert' || event.mode === 'replace') return 'insert'
+  if (event.mode === 'normal') return 'normal'
+  return null
+}
+
+function restoreVimMode(view: EditorView, mode: EditorVimMode | undefined) {
+  if (!mode) return
+
+  const cm = getCM(view)
+  const vimState = cm?.state.vim as VimRuntimeState | undefined
+  if (!cm || !vimState) return
+
+  if (mode === 'insert') {
+    if (!vimState.insertMode) Vim.handleKey(cm as VimCodeMirror, 'i', 'user')
+    return
+  }
+
+  if (vimState.insertMode) {
+    Vim.exitInsertMode(cm as never, true)
+  }
 }
 
 function cursorTheme(color: string) {

@@ -658,6 +658,7 @@ textarea {
 
 .cf-message-content p {
   margin: 0.65em 0;
+  white-space: pre-wrap;
 }
 
 .cf-message-content h1,

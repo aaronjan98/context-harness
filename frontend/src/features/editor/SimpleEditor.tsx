@@ -10,6 +10,7 @@
  * See project-memory/frontend-architecture.md § Editor abstraction.
  */
 
+import { useEffect, useRef } from 'react'
 import type { EditorProps } from './types'
 
 export function SimpleEditor({
@@ -17,10 +18,41 @@ export function SimpleEditor({
   onChange,
   onSubmit,
   onExpand,
+  selection,
+  onSelectionChange,
+  focusRequest,
   disabled,
   placeholder,
   variant = 'composer',
 }: EditorProps) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const selectionRef = useRef(selection)
+  const lastHandledFocusRequestRef = useRef<unknown>(undefined)
+
+  useEffect(() => {
+    selectionRef.current = selection
+  }, [selection])
+
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea || focusRequest === undefined) return
+    if (lastHandledFocusRequestRef.current === focusRequest) return
+    lastHandledFocusRequestRef.current = focusRequest
+
+    const nextSelection = selectionRef.current
+    textarea.focus()
+    if (nextSelection) {
+      textarea.selectionStart = clampSelectionPosition(
+        nextSelection.anchor,
+        textarea.value.length,
+      )
+      textarea.selectionEnd = clampSelectionPosition(
+        nextSelection.head,
+        textarea.value.length,
+      )
+    }
+  }, [focusRequest])
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (variant === 'composer' && e.key.toLowerCase() === 'g' && e.ctrlKey && onExpand) {
       e.preventDefault()
@@ -53,13 +85,24 @@ export function SimpleEditor({
 
   return (
     <textarea
+      ref={textareaRef}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={handleKeyDown}
+      onSelect={(event) => {
+        onSelectionChange?.({
+          anchor: event.currentTarget.selectionStart,
+          head: event.currentTarget.selectionEnd,
+        })
+      }}
       disabled={disabled}
       placeholder={placeholder ?? 'Message... (Enter to send, Shift+Enter for newline)'}
       rows={variant === 'modal' ? 18 : 4}
       className={`cf-editor ${variant === 'modal' ? 'cf-editor-modal' : ''}`}
     />
   )
+}
+
+function clampSelectionPosition(position: number, docLength: number) {
+  return Math.max(0, Math.min(position, docLength))
 }

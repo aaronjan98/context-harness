@@ -12,6 +12,13 @@
  * See project-memory/frontend-architecture.md § Editor abstraction.
  */
 
+export interface EditorSelectionSnapshot {
+  anchor: number
+  head: number
+}
+
+export type EditorVimMode = 'normal' | 'insert'
+
 export interface EditorProps {
   /** Current editor content. Controlled by the parent (ThreadView). */
   value: string
@@ -32,6 +39,27 @@ export interface EditorProps {
 
   /** Optional request to open this editor value in a larger modal surface. */
   onExpand?: () => void
+
+  /** Initial or restored cursor/selection position. */
+  selection?: EditorSelectionSnapshot
+
+  /** Called when the cursor/selection changes. */
+  onSelectionChange?: (selection: EditorSelectionSnapshot) => void
+
+  /** Increment/change this value to request focus from the parent. */
+  focusRequest?: number
+
+  /** Current or restored Vim mode. RichEditor ignores visual mode for handoff. */
+  vimMode?: EditorVimMode
+
+  /** Called when RichEditor enters normal or insert mode. */
+  onVimModeChange?: (mode: EditorVimMode) => void
+
+  /** Optional Vim-style save-and-close action for modal editor surfaces. */
+  onSaveAndClose?: () => void
+
+  /** Optional Vim-style discard-and-close action for modal editor surfaces. */
+  onDiscardAndClose?: () => void
 
   /** Layout variant for shared editor surfaces. */
   variant?: 'composer' | 'modal'

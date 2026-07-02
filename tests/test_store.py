@@ -97,6 +97,46 @@ def test_update_message_content_preserves_metadata_and_refreshes_export(
     assert "Original answer." not in export_text
 
 
+def test_update_message_content_preserves_multiline_markdown(
+    store: ConversationStore,
+) -> None:
+    conversation_id = "unit-edit-message-multiline"
+    paths = store.initialize_conversation(conversation_id)
+    store.append_message(
+        conversation_id,
+        role="user",
+        agent="human",
+        content="Original question.",
+    )
+    second = store.append_message(
+        conversation_id,
+        role="assistant",
+        agent="gemini",
+        content="Original answer.",
+    )
+    edited_content = (
+        "First line\n"
+        "second line stays separate\n\n"
+        "- item one\n"
+        "- item two\n\n"
+        "$$\n"
+        "c_n=(-1)^n a_n\n"
+        "$$"
+    )
+
+    updated = store.update_message_content(
+        conversation_id,
+        second.id,
+        edited_content,
+    )
+    reloaded = store.active_thread(conversation_id)[1]
+    export_text = (paths.exports / "current.md").read_text(encoding="utf-8")
+
+    assert updated.content == edited_content
+    assert reloaded.content == edited_content
+    assert edited_content in export_text
+
+
 def test_save_attachment_and_attach_to_message(store: ConversationStore) -> None:
     conversation_id = "unit-attachments"
     paths = store.initialize_conversation(conversation_id)

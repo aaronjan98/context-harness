@@ -188,6 +188,46 @@ def test_update_message_returns_updated_thread_and_persists(client, store) -> No
     assert "Original response." not in export_text
 
 
+def test_update_message_preserves_multiline_markdown(client, store) -> None:
+    client.post("/api/conversations", json={"conversation_id": "api-edit-multiline"})
+    client.post(
+        "/api/conversations/api-edit-multiline/messages",
+        json={"role": "user", "content": "Original prompt."},
+    )
+    client.post(
+        "/api/conversations/api-edit-multiline/messages",
+        json={
+            "role": "assistant",
+            "agent": "gemini",
+            "content": "Original response.",
+        },
+    )
+    edited_content = (
+        "First line\n"
+        "second line stays separate\n\n"
+        "1. one\n"
+        "2. two\n\n"
+        "$$\n"
+        "c_n=(-1)^n a_n\n"
+        "$$"
+    )
+
+    response = client.patch(
+        "/api/conversations/api-edit-multiline/messages/m0002",
+        json={"content": edited_content},
+    )
+    thread = client.get("/api/conversations/api-edit-multiline/thread")
+    export_text = (
+        store.paths_for("api-edit-multiline").exports / "current.md"
+    ).read_text(encoding="utf-8")
+
+    assert response.status_code == 200
+    assert thread.status_code == 200
+    assert response.json()["messages"][1]["content"] == edited_content
+    assert thread.json()["messages"][1]["content"] == edited_content
+    assert edited_content in export_text
+
+
 def test_update_missing_message_returns_404(client) -> None:
     client.post("/api/conversations", json={"conversation_id": "api-edit-missing"})
 

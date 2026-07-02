@@ -29,6 +29,7 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { conversationRoute } from '@/app/router'
 import { Editor } from '@/features/editor'
+import type { EditorSelectionSnapshot, EditorVimMode } from '@/features/editor'
 import { GraphPanel } from '@/features/graph'
 import { MessageContent } from '@/shared/components/MessageContent'
 import { useUIStore } from '@/store/ui'
@@ -110,13 +111,24 @@ function EditorTray({
   onSend,
 }: EditorTrayProps) {
   const [isComposerExpanded, setIsComposerExpanded] = useState(false)
+  const [expandedDraft, setExpandedDraft] = useState('')
+  const [composerSelection, setComposerSelection] =
+    useState<EditorSelectionSnapshot>({ anchor: 0, head: 0 })
+  const [expandedSelection, setExpandedSelection] =
+    useState<EditorSelectionSnapshot>({ anchor: 0, head: 0 })
+  const [composerVimMode, setComposerVimMode] =
+    useState<EditorVimMode>('normal')
+  const [expandedVimMode, setExpandedVimMode] =
+    useState<EditorVimMode>('normal')
+  const [composerFocusRequest, setComposerFocusRequest] = useState(0)
   const draft = useUIStore(
     (state) => state.draftsByConversationId[conversationId] ?? '',
   )
   const setDraft = useUIStore((state) => state.setDraft)
+  const clearDraft = useUIStore((state) => state.clearDraft)
 
-  function handleSubmit() {
-    const content = draft.trim()
+  function handleSubmit(contentValue = draft) {
+    const content = contentValue.trim()
     const attachmentIds = pendingAttachments.map((attachment) => attachment.id)
     if ((!content && attachmentIds.length === 0) || isSending || isUploadingAttachment) {
       return
@@ -126,6 +138,44 @@ function EditorTray({
       attachmentIds,
     })
     setIsComposerExpanded(false)
+    setComposerFocusRequest((value) => value + 1)
+  }
+
+  function openExpandedComposer() {
+    setExpandedDraft(draft)
+    setExpandedSelection(composerSelection)
+    setExpandedVimMode(composerVimMode)
+    setIsComposerExpanded(true)
+  }
+
+  function saveExpandedComposer() {
+    setDraft(conversationId, expandedDraft)
+    setComposerSelection(expandedSelection)
+    setComposerVimMode(expandedVimMode)
+    setIsComposerExpanded(false)
+    setComposerFocusRequest((value) => value + 1)
+  }
+
+  function discardExpandedComposer() {
+    setExpandedDraft(draft)
+    setComposerVimMode(expandedVimMode)
+    setIsComposerExpanded(false)
+    setComposerFocusRequest((value) => value + 1)
+  }
+
+  function closeExpandedComposer() {
+    saveExpandedComposer()
+  }
+
+  function submitExpandedComposer() {
+    setComposerVimMode(expandedVimMode)
+    handleSubmit(expandedDraft)
+  }
+
+  function clearComposerDraft() {
+    clearDraft(conversationId)
+    setComposerSelection({ anchor: 0, head: 0 })
+    setComposerFocusRequest((value) => value + 1)
   }
 
   return (
@@ -177,7 +227,14 @@ function EditorTray({
         value={draft}
         onChange={(value) => setDraft(conversationId, value)}
         onSubmit={handleSubmit}
-        onExpand={() => setIsComposerExpanded(true)}
+        onExpand={openExpandedComposer}
+        selection={composerSelection}
+        onSelectionChange={setComposerSelection}
+        focusRequest={composerFocusRequest}
+        vimMode={composerVimMode}
+        onVimModeChange={setComposerVimMode}
+        onSaveAndClose={() => handleSubmit()}
+        onDiscardAndClose={clearComposerDraft}
         disabled={isSending || isUploadingAttachment}
       />
       {isComposerExpanded && (
@@ -196,7 +253,7 @@ function EditorTray({
                 <button
                   type="button"
                   className="cf-secondary-button"
-                  onClick={() => setIsComposerExpanded(false)}
+                  onClick={closeExpandedComposer}
                   disabled={isSending}
                 >
                   Close
@@ -204,9 +261,9 @@ function EditorTray({
                 <button
                   type="button"
                   className="cf-primary-button"
-                  onClick={handleSubmit}
+                  onClick={submitExpandedComposer}
                   disabled={
-                    (!draft.trim() && pendingAttachments.length === 0) ||
+                    (!expandedDraft.trim() && pendingAttachments.length === 0) ||
                     isSending ||
                     isUploadingAttachment
                   }
@@ -216,9 +273,15 @@ function EditorTray({
               </div>
             </div>
             <Editor
-              value={draft}
-              onChange={(value) => setDraft(conversationId, value)}
-              onSubmit={handleSubmit}
+              value={expandedDraft}
+              onChange={setExpandedDraft}
+              selection={expandedSelection}
+              onSelectionChange={setExpandedSelection}
+              vimMode={expandedVimMode}
+              onVimModeChange={setExpandedVimMode}
+              onSubmit={submitExpandedComposer}
+              onSaveAndClose={saveExpandedComposer}
+              onDiscardAndClose={discardExpandedComposer}
               disabled={isSending || isUploadingAttachment}
               placeholder="Compose message Markdown... (Vim mode, Ctrl+Enter to send)"
               variant="modal"
@@ -226,6 +289,104 @@ function EditorTray({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+interface MessageEditModalProps {
+  conversationId: string
+  message: Message
+  onClose: () => void
+}
+
+function MessageEditModal({
+  conversationId,
+  message,
+  onClose,
+}: MessageEditModalProps) {
+  const queryClient = useQueryClient()
+  const [content, setContent] = useState(message.content)
+  const [error, setError] = useState<string | null>(null)
+  const [selection, setSelection] =
+    useState<EditorSelectionSnapshot>({ anchor: 0, head: 0 })
+  const [vimMode, setVimMode] = useState<EditorVimMode>('normal')
+
+  const { mutate: saveMessageEdit, isPending: isSaving } = useMutation({
+    mutationFn: (nextContent: string) =>
+      updateMessage(conversationId, message.id, { content: nextContent }),
+    onSuccess: () => {
+      onClose()
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      queryClient.invalidateQueries({
+        queryKey: ['conversations', conversationId, 'messages'],
+      })
+    },
+    onError: (mutationError) => {
+      setError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : 'Failed to save message edit.',
+      )
+    },
+  })
+
+  function submitEdit() {
+    if (!content.trim() || isSaving) return
+    saveMessageEdit(content)
+  }
+
+  return (
+    <div className="cf-attachment-overlay" role="dialog" aria-modal="true">
+      <div className="cf-message-edit-modal">
+        <div className="cf-attachment-modal-header">
+          <div>
+            <div className="cf-attachment-modal-title">
+              Edit message
+            </div>
+            <div className="cf-attachment-modal-meta">
+              {message.role} · {message.agent ?? 'unknown'} · {message.timestamp}
+            </div>
+          </div>
+          <div className="cf-attachment-modal-actions">
+            <button
+              type="button"
+              className="cf-secondary-button"
+              onClick={onClose}
+              disabled={isSaving}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="cf-primary-button"
+              onClick={submitEdit}
+              disabled={!content.trim() || isSaving}
+            >
+              {isSaving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+        <Editor
+          value={content}
+          onChange={(nextValue) => {
+            setContent(nextValue)
+            setError(null)
+          }}
+          onSubmit={submitEdit}
+          selection={selection}
+          onSelectionChange={setSelection}
+          vimMode={vimMode}
+          onVimModeChange={setVimMode}
+          onSaveAndClose={submitEdit}
+          onDiscardAndClose={onClose}
+          disabled={isSaving}
+          placeholder="Edit message Markdown... (Vim mode, Ctrl+Enter to save)"
+          variant="modal"
+        />
+        {error && (
+          <div className="cf-import-error">{error}</div>
+        )}
+      </div>
     </div>
   )
 }
@@ -247,8 +408,6 @@ export function ThreadView() {
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
-  const [editingContent, setEditingContent] = useState('')
-  const [editError, setEditError] = useState<string | null>(null)
 
   const focusedMessageId = useUIStore((s) => s.focusedMessageId)
   const clearDraft = useUIStore((s) => s.clearDraft)
@@ -320,25 +479,6 @@ export function ThreadView() {
     },
   })
 
-  const { mutate: saveMessageEdit, isPending: isEditingMessage } = useMutation({
-    mutationFn: (payload: { messageId: string; content: string }) =>
-      updateMessage(id, payload.messageId, { content: payload.content }),
-    onSuccess: () => {
-      setEditingMessageId(null)
-      setEditingContent('')
-      setEditError(null)
-      queryClient.invalidateQueries({ queryKey: ['conversations'] })
-      queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
-    },
-    onError: (mutationError) => {
-      setEditError(
-        mutationError instanceof Error
-          ? mutationError.message
-          : 'Failed to save message edit.',
-      )
-    },
-  })
-
   // Scroll to focused message when graph panel clicks a node (Phase 4)
   useEffect(() => {
     if (focusedMessageId && messageRefs.current[focusedMessageId]) {
@@ -377,19 +517,10 @@ export function ThreadView() {
   function startEditingMessage(message: Message) {
     setIsExportOpen(false)
     setEditingMessageId(message.id)
-    setEditingContent(message.content)
-    setEditError(null)
   }
 
   function cancelMessageEdit() {
     setEditingMessageId(null)
-    setEditingContent('')
-    setEditError(null)
-  }
-
-  function submitMessageEdit(messageId: string) {
-    if (!editingContent.trim() || isEditingMessage) return
-    saveMessageEdit({ messageId, content: editingContent })
   }
 
   async function handleCopyExport() {
@@ -823,53 +954,12 @@ export function ThreadView() {
       )}
 
       {editingMessage && (
-        <div className="cf-attachment-overlay" role="dialog" aria-modal="true">
-          <div className="cf-message-edit-modal">
-            <div className="cf-attachment-modal-header">
-              <div>
-                <div className="cf-attachment-modal-title">
-                  Edit message
-                </div>
-                <div className="cf-attachment-modal-meta">
-                  {editingMessage.role} · {editingMessage.agent ?? 'unknown'} ·{' '}
-                  {editingMessage.timestamp}
-                </div>
-              </div>
-              <div className="cf-attachment-modal-actions">
-                <button
-                  type="button"
-                  className="cf-secondary-button"
-                  onClick={cancelMessageEdit}
-                  disabled={isEditingMessage}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="cf-primary-button"
-                  onClick={() => submitMessageEdit(editingMessage.id)}
-                  disabled={!editingContent.trim() || isEditingMessage}
-                >
-                  {isEditingMessage ? 'Saving...' : 'Save'}
-                </button>
-              </div>
-            </div>
-            <Editor
-              value={editingContent}
-              onChange={(nextValue) => {
-                setEditingContent(nextValue)
-                setEditError(null)
-              }}
-              onSubmit={() => submitMessageEdit(editingMessage.id)}
-              disabled={isEditingMessage}
-              placeholder="Edit message Markdown... (Vim mode, Ctrl+Enter to save)"
-              variant="modal"
-            />
-            {editError && (
-              <div className="cf-import-error">{editError}</div>
-            )}
-          </div>
-        </div>
+        <MessageEditModal
+          key={editingMessage.id}
+          conversationId={id}
+          message={editingMessage}
+          onClose={cancelMessageEdit}
+        />
       )}
     </>
   )

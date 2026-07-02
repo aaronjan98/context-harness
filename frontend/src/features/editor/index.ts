@@ -14,4 +14,4 @@
  */
 
 export { Editor } from './Editor'
-export type { EditorProps } from './types'
+export type { EditorProps, EditorSelectionSnapshot, EditorVimMode } from './types'
