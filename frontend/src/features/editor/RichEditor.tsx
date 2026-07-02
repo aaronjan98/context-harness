@@ -6,7 +6,7 @@
  * building a separate editor path.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { closeBrackets } from '@codemirror/autocomplete'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
@@ -14,9 +14,13 @@ import { bracketMatching, defaultHighlightStyle, syntaxHighlighting } from '@cod
 import { Compartment, EditorSelection, EditorState, Prec } from '@codemirror/state'
 import { EditorView, drawSelection, keymap, lineNumbers, placeholder } from '@codemirror/view'
 import { getCM, Vim, vim } from '@replit/codemirror-vim'
+import { fetchLatexSuiteSnippets } from '@/api/latexSuite'
 import { useSettingsStore } from '@/store/settings'
 import type { EditorProps, EditorVimMode } from './types'
-import { latexSuiteAutosnippets } from './latexSuiteShortcuts'
+import {
+  latexSuiteShortcuts,
+  type LatexSuiteShortcut,
+} from './latexSuiteShortcuts'
 
 const editableCompartment = new Compartment()
 const placeholderCompartment = new Compartment()
@@ -98,7 +102,11 @@ export function RichEditor({
   const lastHandledFocusRequestRef = useRef<unknown>(undefined)
   const pendingVimCloseChordRef = useRef(false)
   const latexSuiteEnabled = useSettingsStore((state) => state.latexSuiteEnabled)
+  const latexSuitePath = useSettingsStore((state) => state.latexSuitePath)
   const cursorColor = useSettingsStore((state) => state.cursorColor)
+  const [latexSuiteSnippets, setLatexSuiteSnippets] = useState<
+    LatexSuiteShortcut[]
+  >([])
 
   useEffect(() => {
     onChangeRef.current = onChange
@@ -346,7 +354,7 @@ export function RichEditor({
           closeBrackets(),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           latexSuiteCompartment.of(
-            latexSuiteEnabled ? latexSuiteAutosnippets() : [],
+            latexSuiteEnabled ? latexSuiteShortcuts(latexSuiteSnippets) : [],
           ),
           editorKeymap,
           keymap.of([
@@ -523,14 +531,43 @@ export function RichEditor({
   }, [])
 
   useEffect(() => {
+    if (!latexSuiteEnabled) {
+      setLatexSuiteSnippets([])
+      return
+    }
+
+    let cancelled = false
+    fetchLatexSuiteSnippets(latexSuitePath)
+      .then((payload) => {
+        if (cancelled) return
+        setLatexSuiteSnippets(payload.snippets)
+        if (payload.unsupported_count > 0) {
+          console.info('[context-forge] latex-suite skipped unsupported snippets', {
+            unsupportedCount: payload.unsupported_count,
+            unsupportedReasons: payload.unsupported_reasons,
+          })
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return
+        console.warn('[context-forge] failed to load latex-suite snippets', error)
+        setLatexSuiteSnippets([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [latexSuiteEnabled, latexSuitePath])
+
+  useEffect(() => {
     const view = viewRef.current
     if (!view) return
     view.dispatch({
       effects: latexSuiteCompartment.reconfigure(
-        latexSuiteEnabled ? latexSuiteAutosnippets() : [],
+        latexSuiteEnabled ? latexSuiteShortcuts(latexSuiteSnippets) : [],
       ),
     })
-  }, [latexSuiteEnabled])
+  }, [latexSuiteEnabled, latexSuiteSnippets])
 
   useEffect(() => {
     const view = viewRef.current

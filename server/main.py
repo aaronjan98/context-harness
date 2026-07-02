@@ -1,10 +1,14 @@
 """FastAPI application entrypoint for Context Forge."""
 
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
 from server.docs import get_context_forge_docs_html
+from server.latex_suite import (
+    DEFAULT_LATEX_SUITE_PATH,
+    load_latex_suite_snippets,
+)
 from server.store import ConversationStore
 
 
@@ -92,6 +96,26 @@ class ThreadResponse(BaseModel):
 
     conversation: ConversationSummaryResponse
     messages: list[MessageResponse]
+
+
+class LatexSuiteSnippetResponse(BaseModel):
+    """JSON response shape for one normalized latex-suite snippet."""
+
+    trigger: str
+    replacement: str
+    options: str
+    priority: int
+    regex: bool
+    description: str | None = None
+
+
+class LatexSuiteSnippetsResponse(BaseModel):
+    """JSON response shape for a parsed latex-suite shortcut file."""
+
+    path: str
+    snippets: list[LatexSuiteSnippetResponse]
+    unsupported_count: int
+    unsupported_reasons: list[str]
 
 
 def serialize_message(message: object) -> MessageResponse:
@@ -189,6 +213,24 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
     async def health() -> dict[str, str]:
         """Simple health check for early scaffolding."""
         return {"status": "ok"}
+
+    @app.get(
+        "/api/latex-suite/snippets",
+        response_model=LatexSuiteSnippetsResponse,
+    )
+    async def get_latex_suite_snippets(
+        path: str = Query(default=DEFAULT_LATEX_SUITE_PATH, min_length=1),
+    ) -> dict[str, object]:
+        """Load and normalize a local Obsidian latex-suite shortcuts file."""
+        try:
+            return load_latex_suite_snippets(path).model_dump()
+        except FileNotFoundError as error:
+            raise HTTPException(
+                status_code=404,
+                detail=f"LaTeX Suite shortcut file not found: {path}",
+            ) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.get(
         "/api/conversations",

@@ -76,8 +76,8 @@ export function SettingsPage() {
           />
         </label>
         <p className="cf-settings-note">
-          This is stored now for configuration. Loading custom shortcut files
-          from the browser will need a backend-backed settings step.
+          Context Forge asks the local backend to load this Obsidian
+          latex-suite shortcut file when Vim mode snippets are enabled.
         </p>
       </section>
     </div>

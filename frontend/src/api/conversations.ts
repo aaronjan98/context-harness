@@ -48,7 +48,7 @@ function apiErrorMessage(error: unknown): string {
   return 'API request failed'
 }
 
-function toApiError(error: unknown, response: unknown): ApiError {
+export function toApiError(error: unknown, response: unknown): ApiError {
   const status =
     response && typeof response === 'object' && 'status' in response
       ? Number(response.status)
