@@ -40,7 +40,9 @@ import {
   currentExportDownloadUrl,
   fetchCurrentExportMarkdown,
   importMarkdown,
+  insertMessage,
   resolveApiUrl,
+  deleteMessage,
   updateMessage,
   uploadAttachment,
 } from '@/api/conversations'
@@ -391,6 +393,146 @@ function MessageEditModal({
   )
 }
 
+type InsertPosition = 'before' | 'after'
+
+interface MessageInsertModalProps {
+  conversationId: string
+  targetMessage: Message
+  position: InsertPosition
+  onClose: () => void
+}
+
+function MessageInsertModal({
+  conversationId,
+  targetMessage,
+  position,
+  onClose,
+}: MessageInsertModalProps) {
+  const queryClient = useQueryClient()
+  const [content, setContent] = useState('')
+  const [role, setRole] = useState<'user' | 'assistant'>(
+    targetMessage.role === 'user' ? 'assistant' : 'user',
+  )
+  const [agent, setAgent] = useState(role === 'user' ? 'human' : 'imported')
+  const [error, setError] = useState<string | null>(null)
+  const [selection, setSelection] =
+    useState<EditorSelectionSnapshot>({ anchor: 0, head: 0 })
+  const [vimMode, setVimMode] = useState<EditorVimMode>('normal')
+
+  const { mutate: saveInsert, isPending: isSaving } = useMutation({
+    mutationFn: (nextContent: string) =>
+      insertMessage(conversationId, targetMessage.id, {
+        position,
+        role,
+        agent,
+        content: nextContent,
+      }),
+    onSuccess: () => {
+      onClose()
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      queryClient.invalidateQueries({
+        queryKey: ['conversations', conversationId, 'messages'],
+      })
+    },
+    onError: (mutationError) => {
+      setError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : 'Failed to insert message.',
+      )
+    },
+  })
+
+  function submitInsert() {
+    if (!content.trim() || isSaving) return
+    saveInsert(content)
+  }
+
+  function updateRole(nextRole: 'user' | 'assistant') {
+    setRole(nextRole)
+    setAgent(nextRole === 'user' ? 'human' : 'imported')
+  }
+
+  return (
+    <div className="cf-attachment-overlay" role="dialog" aria-modal="true">
+      <div className="cf-message-edit-modal">
+        <div className="cf-attachment-modal-header">
+          <div>
+            <div className="cf-attachment-modal-title">
+              Insert {position} message
+            </div>
+            <div className="cf-attachment-modal-meta">
+              Relative to {targetMessage.id} · {targetMessage.role} ·{' '}
+              {targetMessage.agent ?? 'unknown'}
+            </div>
+          </div>
+          <div className="cf-attachment-modal-actions">
+            <button
+              type="button"
+              className="cf-secondary-button"
+              onClick={onClose}
+              disabled={isSaving}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="cf-primary-button"
+              onClick={submitInsert}
+              disabled={!content.trim() || isSaving}
+            >
+              {isSaving ? 'Inserting...' : 'Insert'}
+            </button>
+          </div>
+        </div>
+        <div className="cf-message-insert-fields">
+          <label className="cf-message-insert-field">
+            <span>Role</span>
+            <select
+              value={role}
+              onChange={(event) =>
+                updateRole(event.target.value as 'user' | 'assistant')
+              }
+              disabled={isSaving}
+            >
+              <option value="user">user</option>
+              <option value="assistant">assistant</option>
+            </select>
+          </label>
+          <label className="cf-message-insert-field">
+            <span>Agent</span>
+            <input
+              value={agent}
+              onChange={(event) => setAgent(event.target.value)}
+              disabled={isSaving}
+            />
+          </label>
+        </div>
+        <Editor
+          value={content}
+          onChange={(nextValue) => {
+            setContent(nextValue)
+            setError(null)
+          }}
+          onSubmit={submitInsert}
+          selection={selection}
+          onSelectionChange={setSelection}
+          vimMode={vimMode}
+          onVimModeChange={setVimMode}
+          onSaveAndClose={submitInsert}
+          onDiscardAndClose={onClose}
+          disabled={isSaving}
+          placeholder="Insert message Markdown... (Vim mode, Ctrl+Enter to insert)"
+          variant="modal"
+        />
+        {error && (
+          <div className="cf-import-error">{error}</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function ThreadView() {
   const { id } = conversationRoute.useParams()
   const { panel } = conversationRoute.useSearch()
@@ -408,6 +550,11 @@ export function ThreadView() {
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [insertTarget, setInsertTarget] = useState<{
+    messageId: string
+    position: InsertPosition
+  } | null>(null)
+  const [openActionsMessageId, setOpenActionsMessageId] = useState<string | null>(null)
 
   const focusedMessageId = useUIStore((s) => s.focusedMessageId)
   const clearDraft = useUIStore((s) => s.clearDraft)
@@ -479,6 +626,22 @@ export function ThreadView() {
     },
   })
 
+  const { mutate: removeMessage, isPending: isDeletingMessage } = useMutation({
+    mutationFn: (messageId: string) => deleteMessage(id, messageId),
+    onSuccess: () => {
+      setOpenActionsMessageId(null)
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
+    },
+    onError: (mutationError) => {
+      setExportStatus(
+        mutationError instanceof Error
+          ? mutationError.message
+          : 'Failed to delete message.',
+      )
+    },
+  })
+
   // Scroll to focused message when graph panel clicks a node (Phase 4)
   useEffect(() => {
     if (focusedMessageId && messageRefs.current[focusedMessageId]) {
@@ -516,11 +679,28 @@ export function ThreadView() {
 
   function startEditingMessage(message: Message) {
     setIsExportOpen(false)
+    setOpenActionsMessageId(null)
     setEditingMessageId(message.id)
   }
 
   function cancelMessageEdit() {
     setEditingMessageId(null)
+  }
+
+  function startInsertingMessage(message: Message, position: InsertPosition) {
+    setIsExportOpen(false)
+    setOpenActionsMessageId(null)
+    setInsertTarget({ messageId: message.id, position })
+  }
+
+  function cancelMessageInsert() {
+    setInsertTarget(null)
+  }
+
+  function handleDeleteMessage(message: Message) {
+    setIsExportOpen(false)
+    setOpenActionsMessageId(null)
+    removeMessage(message.id)
   }
 
   async function handleCopyExport() {
@@ -591,6 +771,9 @@ export function ThreadView() {
 
   const selectedCount = selectedMessageIds.size
   const editingMessage = messages?.find((message) => message.id === editingMessageId)
+  const insertingMessage = insertTarget
+    ? messages?.find((message) => message.id === insertTarget.messageId)
+    : undefined
 
   const isMissingConversation = error instanceof ApiError && error.status === 404
 
@@ -806,18 +989,65 @@ export function ThreadView() {
                     <div className="cf-message-meta">
                       {msg.role} · {msg.agent ?? 'unknown'} · {msg.timestamp}
                     </div>
-                    <button
-                      type="button"
-                      className="cf-message-edit-button"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        startEditingMessage(msg)
-                      }}
-                      aria-label={`Edit message ${msg.id}`}
-                      title="Edit message"
-                    >
-                      ✎
-                    </button>
+                    <div className="cf-message-actions">
+                      <button
+                        type="button"
+                        className="cf-message-edit-button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setOpenActionsMessageId((current) =>
+                            current === msg.id ? null : msg.id,
+                          )
+                        }}
+                        aria-label={`Open actions for message ${msg.id}`}
+                        title="Message actions"
+                        aria-expanded={openActionsMessageId === msg.id}
+                      >
+                        ✎
+                      </button>
+                      {openActionsMessageId === msg.id && (
+                        <div className="cf-message-actions-menu">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              startEditingMessage(msg)
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              startInsertingMessage(msg, 'before')
+                            }}
+                          >
+                            Insert before
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              startInsertingMessage(msg, 'after')
+                            }}
+                          >
+                            Insert after
+                          </button>
+                          <button
+                            type="button"
+                            className="cf-message-actions-danger"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleDeleteMessage(msg)
+                            }}
+                            disabled={isDeletingMessage}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <MessageContent content={msg.content} />
                   {msg.attachments.length > 0 && (
@@ -959,6 +1189,15 @@ export function ThreadView() {
           conversationId={id}
           message={editingMessage}
           onClose={cancelMessageEdit}
+        />
+      )}
+      {insertTarget && insertingMessage && (
+        <MessageInsertModal
+          key={`${insertTarget.messageId}-${insertTarget.position}`}
+          conversationId={id}
+          targetMessage={insertingMessage}
+          position={insertTarget.position}
+          onClose={cancelMessageInsert}
         />
       )}
     </>

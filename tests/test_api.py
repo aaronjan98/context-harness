@@ -250,6 +250,74 @@ def test_update_message_missing_conversation_does_not_create_it(client, store) -
     assert not store.conversation_dir("missing-edit").exists()
 
 
+def test_insert_message_returns_updated_thread_and_persists(client, store) -> None:
+    client.post("/api/conversations", json={"conversation_id": "api-insert-message"})
+    client.post(
+        "/api/conversations/api-insert-message/messages",
+        json={"role": "user", "content": "First."},
+    )
+    client.post(
+        "/api/conversations/api-insert-message/messages",
+        json={"role": "assistant", "agent": "gemini", "content": "Second."},
+    )
+
+    response = client.post(
+        "/api/conversations/api-insert-message/messages/m0002/insert",
+        json={
+            "position": "before",
+            "role": "user",
+            "agent": "human",
+            "content": "Inserted.",
+        },
+    )
+    export_text = (
+        store.paths_for("api-insert-message").exports / "current.md"
+    ).read_text(encoding="utf-8")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [message["id"] for message in payload["messages"]] == [
+        "m0001",
+        "m0003",
+        "m0002",
+    ]
+    assert payload["messages"][1]["parent_id"] == "m0001"
+    assert payload["messages"][2]["parent_id"] == "m0003"
+    assert "Inserted." in export_text
+
+
+def test_delete_message_returns_updated_thread_and_soft_deletes(client, store) -> None:
+    client.post("/api/conversations", json={"conversation_id": "api-delete-message"})
+    client.post(
+        "/api/conversations/api-delete-message/messages",
+        json={"role": "user", "content": "First."},
+    )
+    client.post(
+        "/api/conversations/api-delete-message/messages",
+        json={"role": "assistant", "agent": "gemini", "content": "Delete me."},
+    )
+    client.post(
+        "/api/conversations/api-delete-message/messages",
+        json={"role": "user", "content": "Third."},
+    )
+
+    response = client.delete("/api/conversations/api-delete-message/messages/m0002")
+    export_text = (
+        store.paths_for("api-delete-message").exports / "current.md"
+    ).read_text(encoding="utf-8")
+    deleted = store.read_message_file(
+        store.paths_for("api-delete-message").messages / "m0002.md"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [message["id"] for message in payload["messages"]] == ["m0001", "m0003"]
+    assert payload["messages"][1]["parent_id"] == "m0001"
+    assert deleted.deleted_at is not None
+    assert "Delete me." not in export_text
+    assert "Third." in export_text
+
+
 def test_upload_attachment_and_attach_to_message(client) -> None:
     client.post("/api/conversations", json={"conversation_id": "api-attachments"})
 

@@ -30,6 +30,14 @@ export interface UpdateMessageRequest {
   content: string
 }
 
+export interface InsertMessageRequest {
+  position: 'before' | 'after'
+  role: string
+  agent?: string
+  content: string
+  message_format?: string
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -119,6 +127,43 @@ export async function updateMessage(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     },
+  )
+
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) throw toApiError(payload, response)
+  return payload
+}
+
+export async function insertMessage(
+  conversationId: string,
+  messageId: string,
+  body: InsertMessageRequest,
+) {
+  const response = await fetch(
+    resolveApiUrl(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/insert`,
+    ),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
+
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) throw toApiError(payload, response)
+  return payload
+}
+
+export async function deleteMessage(
+  conversationId: string,
+  messageId: string,
+) {
+  const response = await fetch(
+    resolveApiUrl(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+    ),
+    { method: 'DELETE' },
   )
 
   const payload = await response.json().catch(() => null)

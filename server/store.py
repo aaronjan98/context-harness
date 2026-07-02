@@ -48,6 +48,7 @@ class MessageRecord:
     format: str
     attachments: list["AttachmentRecord"]
     content: str
+    deleted_at: str | None = None
 
 
 @dataclass(slots=True)
@@ -351,6 +352,106 @@ class ConversationStore:
         self.write_current_export(paths, self.active_thread(conversation_id))
         return record
 
+    def insert_message_near(
+        self,
+        conversation_id: str,
+        message_id: str,
+        *,
+        position: str,
+        role: str,
+        agent: str,
+        content: str,
+        message_format: str = "markdown",
+    ) -> MessageRecord:
+        """Insert a new message before or after an active-thread message."""
+        if position not in {"before", "after"}:
+            raise ValueError("position must be 'before' or 'after'")
+
+        paths = self.require_existing_conversation(conversation_id)
+        if not self.valid_message_id(message_id):
+            raise FileNotFoundError(f"Message not found: {message_id}")
+
+        metadata = self.load_conversation_metadata(conversation_id)
+        thread = self.active_thread(conversation_id)
+        index = next(
+            (current for current, message in enumerate(thread) if message.id == message_id),
+            None,
+        )
+        if index is None:
+            raise FileNotFoundError(f"Message not found: {message_id}")
+
+        target = thread[index]
+        next_message = thread[index + 1] if index + 1 < len(thread) else None
+        new_record = MessageRecord(
+            id=self.next_message_id(conversation_id),
+            parent_id=target.parent_id if position == "before" else target.id,
+            role=role,
+            agent=agent,
+            timestamp=datetime.now().astimezone().isoformat(timespec="seconds"),
+            format=message_format,
+            attachments=[],
+            content=content,
+        )
+
+        if position == "before":
+            target.parent_id = new_record.id
+            self.write_message(paths, target)
+            if metadata.root_message_id == target.id:
+                metadata.root_message_id = new_record.id
+        elif next_message is not None:
+            next_message.parent_id = new_record.id
+            self.write_message(paths, next_message)
+        else:
+            metadata.active_message_id = new_record.id
+
+        self.write_message(paths, new_record)
+        if metadata.root_message_id is None:
+            metadata.root_message_id = new_record.id
+        if metadata.active_message_id is None:
+            metadata.active_message_id = new_record.id
+        self.write_conversation_metadata(paths, metadata)
+        self.write_current_export(paths, self.active_thread(conversation_id))
+        return new_record
+
+    def delete_message_from_thread(
+        self,
+        conversation_id: str,
+        message_id: str,
+    ) -> MessageRecord:
+        """Soft-delete one active-thread message and stitch the chain around it."""
+        paths = self.require_existing_conversation(conversation_id)
+        if not self.valid_message_id(message_id):
+            raise FileNotFoundError(f"Message not found: {message_id}")
+
+        metadata = self.load_conversation_metadata(conversation_id)
+        thread = self.active_thread(conversation_id)
+        index = next(
+            (current for current, message in enumerate(thread) if message.id == message_id),
+            None,
+        )
+        if index is None:
+            raise FileNotFoundError(f"Message not found: {message_id}")
+
+        target = thread[index]
+        previous_id = target.parent_id
+        next_message = thread[index + 1] if index + 1 < len(thread) else None
+
+        if next_message is not None:
+            next_message.parent_id = previous_id
+            self.write_message(paths, next_message)
+            if metadata.root_message_id == target.id:
+                metadata.root_message_id = next_message.id
+        else:
+            metadata.active_message_id = previous_id
+            if metadata.root_message_id == target.id:
+                metadata.root_message_id = None
+
+        target.deleted_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        self.write_message(paths, target)
+        self.write_conversation_metadata(paths, metadata)
+        self.write_current_export(paths, self.active_thread(conversation_id))
+        return target
+
     def parse_markdown_import(self, content: str) -> list[ImportedMessage]:
         """Parse common Markdown transcript shapes into messages."""
         heading_messages = self.parse_heading_transcript(content)
@@ -474,6 +575,8 @@ class ConversationStore:
                 for attachment in record.attachments
             ],
         }
+        if record.deleted_at is not None:
+            frontmatter["deleted_at"] = record.deleted_at
         text = (
             "---\n"
             f"{yaml.safe_dump(frontmatter, sort_keys=False).strip()}\n"
@@ -503,6 +606,9 @@ class ConversationStore:
                 for item in attachments
             ],
             content=content,
+            deleted_at=self._optional_string(
+                self._to_optional_text(values.get("deleted_at"))
+            ),
         )
 
     def split_frontmatter(self, text: str) -> tuple[str, str]:

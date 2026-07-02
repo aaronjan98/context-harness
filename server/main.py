@@ -41,6 +41,16 @@ class UpdateMessageRequest(BaseModel):
     content: str = Field(min_length=1)
 
 
+class InsertMessageRequest(BaseModel):
+    """Payload for inserting a message next to an existing message."""
+
+    position: str = Field(pattern=r"^(before|after)$")
+    role: str = Field(min_length=1)
+    agent: str | None = Field(default=None, min_length=1)
+    content: str = Field(min_length=1)
+    message_format: str | None = Field(default=None, min_length=1)
+
+
 class ImportMarkdownRequest(BaseModel):
     """Payload for importing an external Markdown transcript."""
 
@@ -343,6 +353,56 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
                 message_id,
                 payload.content,
             )
+        except FileNotFoundError as error:
+            try:
+                store.require_existing_conversation(conversation_id)
+            except FileNotFoundError:
+                raise conversation_not_found(conversation_id) from error
+            raise message_not_found(message_id) from error
+        return await get_active_thread(conversation_id)
+
+    @app.post(
+        "/api/conversations/{conversation_id}/messages/{message_id}/insert",
+        response_model=ThreadResponse,
+    )
+    async def insert_message(
+        conversation_id: str,
+        message_id: str,
+        payload: InsertMessageRequest,
+    ) -> dict[str, object]:
+        """Insert a message before or after an active-thread message."""
+        agent = payload.agent or ("human" if payload.role == "user" else "unknown")
+        try:
+            store.insert_message_near(
+                conversation_id,
+                message_id,
+                position=payload.position,
+                role=payload.role,
+                agent=agent,
+                content=payload.content,
+                message_format=payload.message_format or "markdown",
+            )
+        except FileNotFoundError as error:
+            try:
+                store.require_existing_conversation(conversation_id)
+            except FileNotFoundError:
+                raise conversation_not_found(conversation_id) from error
+            raise message_not_found(message_id) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return await get_active_thread(conversation_id)
+
+    @app.delete(
+        "/api/conversations/{conversation_id}/messages/{message_id}",
+        response_model=ThreadResponse,
+    )
+    async def delete_message(
+        conversation_id: str,
+        message_id: str,
+    ) -> dict[str, object]:
+        """Soft-delete a message from the active thread and stitch descendants."""
+        try:
+            store.delete_message_from_thread(conversation_id, message_id)
         except FileNotFoundError as error:
             try:
                 store.require_existing_conversation(conversation_id)

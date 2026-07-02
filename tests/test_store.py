@@ -137,6 +137,102 @@ def test_update_message_content_preserves_multiline_markdown(
     assert edited_content in export_text
 
 
+def test_insert_message_before_and_after_rewrites_active_chain(
+    store: ConversationStore,
+) -> None:
+    conversation_id = "unit-insert-message"
+    paths = store.initialize_conversation(conversation_id)
+    first = store.append_message(
+        conversation_id,
+        role="user",
+        agent="human",
+        content="First.",
+    )
+    second = store.append_message(
+        conversation_id,
+        role="assistant",
+        agent="gemini",
+        content="Second.",
+    )
+
+    inserted_before = store.insert_message_near(
+        conversation_id,
+        second.id,
+        position="before",
+        role="user",
+        agent="human",
+        content="Inserted before second.",
+    )
+    inserted_after = store.insert_message_near(
+        conversation_id,
+        first.id,
+        position="after",
+        role="assistant",
+        agent="codex",
+        content="Inserted after first.",
+    )
+
+    metadata = store.load_conversation_metadata(conversation_id)
+    thread = store.active_thread(conversation_id)
+    export_text = (paths.exports / "current.md").read_text(encoding="utf-8")
+
+    assert [message.id for message in thread] == [
+        first.id,
+        inserted_after.id,
+        inserted_before.id,
+        second.id,
+    ]
+    assert thread[1].parent_id == first.id
+    assert thread[2].parent_id == inserted_after.id
+    assert thread[3].parent_id == inserted_before.id
+    assert metadata.root_message_id == first.id
+    assert metadata.active_message_id == second.id
+    assert "Inserted before second." in export_text
+    assert "Inserted after first." in export_text
+
+
+def test_delete_message_soft_deletes_and_stitches_active_chain(
+    store: ConversationStore,
+) -> None:
+    conversation_id = "unit-delete-message"
+    paths = store.initialize_conversation(conversation_id)
+    first = store.append_message(
+        conversation_id,
+        role="user",
+        agent="human",
+        content="First.",
+    )
+    second = store.append_message(
+        conversation_id,
+        role="assistant",
+        agent="gemini",
+        content="Second.",
+    )
+    third = store.append_message(
+        conversation_id,
+        role="user",
+        agent="human",
+        content="Third.",
+    )
+
+    deleted = store.delete_message_from_thread(conversation_id, second.id)
+
+    metadata = store.load_conversation_metadata(conversation_id)
+    thread = store.active_thread(conversation_id)
+    reloaded_deleted = store.read_message_file(paths.messages / f"{second.id}.md")
+    export_text = (paths.exports / "current.md").read_text(encoding="utf-8")
+
+    assert deleted.id == second.id
+    assert deleted.deleted_at is not None
+    assert reloaded_deleted.deleted_at is not None
+    assert [message.id for message in thread] == [first.id, third.id]
+    assert thread[1].parent_id == first.id
+    assert metadata.root_message_id == first.id
+    assert metadata.active_message_id == third.id
+    assert "Second." not in export_text
+    assert "Third." in export_text
+
+
 def test_save_attachment_and_attach_to_message(store: ConversationStore) -> None:
     conversation_id = "unit-attachments"
     paths = store.initialize_conversation(conversation_id)
