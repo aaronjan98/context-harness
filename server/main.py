@@ -77,6 +77,23 @@ class ImportMarkdownRequest(BaseModel):
     content: str = Field(min_length=1)
 
 
+class IngestMessageRequest(BaseModel):
+    """Payload for syncing one external chatbot message into Context Forge.
+
+    Sent by the browser userscript when a new assistant reply lands in the
+    chatbot UI.  The endpoint deduplicates against the last message so that
+    rapid or double-fired calls from the observer do not create duplicates.
+    """
+
+    role: str = Field(default="assistant", min_length=1)
+    agent: str = Field(default="chatgpt", min_length=1)
+    content: str = Field(min_length=1)
+    source_id: str | None = Field(
+        default=None,
+        description="Chatbot-assigned message UUID — stored for future dedup queries.",
+    )
+
+
 class ConversationPathsResponse(BaseModel):
     """Filesystem paths exposed for local debugging and handoff."""
 
@@ -421,6 +438,46 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         return await get_active_thread(conversation_id)
+
+    @app.post(
+        "/api/conversations/{conversation_id}/messages/ingest",
+        response_model=MessageResponse,
+    )
+    async def ingest_message(
+        conversation_id: str,
+        payload: IngestMessageRequest,
+    ) -> dict[str, object]:
+        """Accept one external chatbot message and append it if not a duplicate.
+
+        Called by the browser userscript whenever a new assistant reply appears
+        in the chatbot UI.  Deduplicates against the most recent message so that
+        rapid observer callbacks or page-reload rescans do not create duplicates.
+        Returns the existing message record when a duplicate is detected.
+        """
+        try:
+            thread = store.active_thread(conversation_id)
+        except FileNotFoundError as error:
+            raise conversation_not_found(conversation_id) from error
+
+        if thread:
+            last = thread[-1]
+            if (
+                last.role == payload.role
+                and last.content.strip() == payload.content.strip()
+            ):
+                return message_response(conversation_id, last).model_dump()
+
+        try:
+            record = store.append_message(
+                conversation_id,
+                role=payload.role,
+                agent=payload.agent,
+                content=payload.content,
+            )
+        except FileNotFoundError as error:
+            raise conversation_not_found(conversation_id) from error
+
+        return message_response(conversation_id, record).model_dump()
 
     @app.delete(
         "/api/conversations/{conversation_id}/messages/{message_id}",
