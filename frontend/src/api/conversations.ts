@@ -38,6 +38,14 @@ export interface InsertMessageRequest {
   message_format?: string
 }
 
+export interface ToolExecutionRequest {
+  tool: 'terminal.exec'
+  cwd: string
+  command: string
+  reason: string
+  timeout_seconds: number
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -164,6 +172,81 @@ export async function deleteMessage(
       `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
     ),
     { method: 'DELETE' },
+  )
+
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) throw toApiError(payload, response)
+  return payload
+}
+
+export type ToolStreamEvent =
+  | { type: 'stdout'; chunk: string }
+  | { type: 'stderr'; chunk: string }
+  | { type: 'exit'; code: number; stdout: string; stderr: string }
+  | { type: 'error'; message: string }
+  | { type: 'done' }
+
+export async function* streamToolExecution(
+  conversationId: string,
+  messageId: string,
+  body: ToolExecutionRequest,
+): AsyncGenerator<ToolStreamEvent> {
+  const response = await fetch(
+    resolveApiUrl(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/tool-executions/stream`,
+    ),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    throw toApiError(payload, response)
+  }
+
+  if (!response.body) throw new Error('No response body from stream endpoint')
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            yield JSON.parse(line.slice(6)) as ToolStreamEvent
+          } catch {}
+        }
+      }
+    }
+  } finally {
+    reader.cancel()
+  }
+}
+
+export async function runToolExecution(
+  conversationId: string,
+  messageId: string,
+  body: ToolExecutionRequest,
+) {
+  const response = await fetch(
+    resolveApiUrl(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/tool-executions`,
+    ),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
   )
 
   const payload = await response.json().catch(() => null)

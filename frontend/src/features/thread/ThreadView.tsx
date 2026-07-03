@@ -42,10 +42,11 @@ import {
   insertMessage,
   resolveApiUrl,
   deleteMessage,
+  streamToolExecution,
   updateMessage,
   uploadAttachment,
 } from '@/api/conversations'
-import type { Attachment, Message } from '@/api/conversations'
+import type { Attachment, Message, ToolExecutionRequest } from '@/api/conversations'
 
 function formatBytes(size: number): string {
   if (size < 1024) return `${size} B`
@@ -749,6 +750,28 @@ function BootstrapPromptModal({ onClose }: BootstrapPromptModalProps) {
   )
 }
 
+function formatChatbotCopy(command: string, stdout: string, stderr: string, exitCode: number): string {
+  const parts = [`Command:\n\`\`\`bash\n${command}\n\`\`\``]
+  if (exitCode !== 0) parts.push(`Exit code: ${exitCode}`)
+  parts.push(`Result:\n\`\`\`text\n${stdout || '(no stdout)'}\n\`\`\``)
+  if (stderr) parts.push(`Stderr:\n\`\`\`text\n${stderr}\n\`\`\``)
+  return parts.join('\n')
+}
+
+function parseChatbotCopy(content: string): string | null {
+  const cmdMatch = /\nCommand:\n(`{3,})bash\n([\s\S]*?)\n\1/.exec(content)
+  const stdoutMatch = /\nStdout:\n(`{3,})(?:text)?\n([\s\S]*?)\n\2/.exec(content)
+  const stderrMatch = /\nStderr:\n(`{3,})(?:text)?\n([\s\S]*?)\n\2/.exec(content)
+  const exitMatch = /\nExit code: `(\d+)`/.exec(content)
+  if (!cmdMatch || !stdoutMatch) return null
+  const stdout = stdoutMatch[2].trim()
+  const stderr = stderrMatch ? stderrMatch[2].trim() : ''
+  const exitCode = exitMatch ? parseInt(exitMatch[1], 10) : 0
+  const effectiveStdout = stdout === '(no stdout)' ? '' : stdout
+  const effectiveStderr = stderr === '(no stderr)' ? '' : stderr
+  return formatChatbotCopy(cmdMatch[2], effectiveStdout, effectiveStderr, exitCode)
+}
+
 export function ThreadView() {
   const { id } = conversationRoute.useParams()
   const { panel } = conversationRoute.useSearch()
@@ -773,6 +796,9 @@ export function ThreadView() {
     position: InsertPosition
   } | null>(null)
   const [openActionsMessageId, setOpenActionsMessageId] = useState<string | null>(null)
+  const [runningToolCallKey, setRunningToolCallKey] = useState<string | null>(null)
+  const [toolStreamLog, setToolStreamLog] = useState('')
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
 
   const focusedMessageId = useUIStore((s) => s.focusedMessageId)
   const clearDraft = useUIStore((s) => s.clearDraft)
@@ -860,6 +886,7 @@ export function ThreadView() {
     },
   })
 
+
   // Scroll to focused message when graph panel clicks a node (Phase 4)
   useEffect(() => {
     if (focusedMessageId && messageRefs.current[focusedMessageId]) {
@@ -919,6 +946,41 @@ export function ThreadView() {
     setIsExportOpen(false)
     setOpenActionsMessageId(null)
     removeMessage(message.id)
+  }
+
+  async function handleRunToolCall(
+    message: Message,
+    toolCall: ToolExecutionRequest,
+    toolCallKey: string,
+  ) {
+    setIsExportOpen(false)
+    setExportStatus(null)
+    setRunningToolCallKey(`${message.id}:${toolCallKey}`)
+    setToolStreamLog('')
+
+    try {
+      let exitEvent: { stdout: string; stderr: string; code: number } | null = null
+      for await (const event of streamToolExecution(id, message.id, toolCall)) {
+        if (event.type === 'stdout' || event.type === 'stderr') {
+          setToolStreamLog((prev) => prev + event.chunk)
+        } else if (event.type === 'exit') {
+          exitEvent = { stdout: event.stdout, stderr: event.stderr, code: event.code }
+        } else if (event.type === 'done') {
+          queryClient.invalidateQueries({ queryKey: ['conversations'] })
+          queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
+        } else if (event.type === 'error') {
+          setExportStatus(event.message)
+        }
+      }
+      if (exitEvent) {
+        setExportStatus(`Command finished (exit ${exitEvent.code}).`)
+        window.setTimeout(() => setExportStatus(null), 3000)
+      }
+    } catch (err) {
+      setExportStatus(err instanceof Error ? err.message : 'Failed to execute tool call.')
+    } finally {
+      setRunningToolCallKey(null)
+    }
   }
 
   async function handleCopyExport() {
@@ -1271,6 +1333,22 @@ export function ThreadView() {
                     <div className="cf-message-actions">
                       <button
                         type="button"
+                        className="cf-message-copy-button"
+                        title="Copy message"
+                        aria-label={`Copy message ${msg.id}`}
+                        onClick={async (event) => {
+                          event.stopPropagation()
+                          try {
+                            await navigator.clipboard.writeText(msg.content)
+                            setCopiedMessageId(msg.id)
+                            window.setTimeout(() => setCopiedMessageId(null), 1400)
+                          } catch {}
+                        }}
+                      >
+                        {copiedMessageId === msg.id ? '✓' : '⎘'}
+                      </button>
+                      <button
+                        type="button"
                         className="cf-message-edit-button"
                         onClick={(event) => {
                           event.stopPropagation()
@@ -1328,7 +1406,45 @@ export function ThreadView() {
                       )}
                     </div>
                   </div>
-                  <MessageContent content={msg.content} />
+                  <MessageContent
+                    content={msg.content}
+                    onRunToolCall={(toolCall, toolCallKey) =>
+                      handleRunToolCall(msg, toolCall, toolCallKey)
+                    }
+                    runningToolCallKey={
+                      runningToolCallKey?.startsWith(`${msg.id}:`)
+                        ? runningToolCallKey.slice(msg.id.length + 1)
+                        : null
+                    }
+                    toolStreamLog={
+                      runningToolCallKey?.startsWith(`${msg.id}:`)
+                        ? toolStreamLog
+                        : undefined
+                    }
+                  />
+                  {msg.role === 'tool' && msg.agent === 'contextforge' && (() => {
+                    const chatbotText = parseChatbotCopy(msg.content)
+                    if (!chatbotText) return null
+                    const copyId = `chatbot:${msg.id}`
+                    return (
+                      <div className="cf-chatbot-copy-row">
+                        <button
+                          type="button"
+                          className="cf-chatbot-copy-button"
+                          onClick={async (event) => {
+                            event.stopPropagation()
+                            try {
+                              await navigator.clipboard.writeText(chatbotText)
+                              setCopiedMessageId(copyId)
+                              window.setTimeout(() => setCopiedMessageId(null), 1400)
+                            } catch {}
+                          }}
+                        >
+                          {copiedMessageId === copyId ? '✓ Copied for chatbot' : 'Copy for chatbot'}
+                        </button>
+                      </div>
+                    )
+                  })()}
                   {msg.attachments.length > 0 && (
                     <div className="cf-attachment-list">
                       {msg.attachments.map((attachment) => (

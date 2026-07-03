@@ -1,8 +1,10 @@
 """FastAPI application entrypoint for Context Forge."""
 
+import json as json_mod
+
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
 from server.docs import get_context_forge_docs_html
 from server.latex_suite import (
@@ -10,6 +12,14 @@ from server.latex_suite import (
     load_latex_suite_snippets,
 )
 from server.store import ConversationStore
+from server.tool_execution import (
+    TerminalExecutionResult,
+    ToolExecutionError,
+    execute_terminal_command,
+    format_terminal_result_markdown,
+    stream_terminal_command,
+    validate_terminal_exec,
+)
 
 
 class CreateConversationRequest(BaseModel):
@@ -49,6 +59,16 @@ class InsertMessageRequest(BaseModel):
     agent: str | None = Field(default=None, min_length=1)
     content: str = Field(min_length=1)
     message_format: str | None = Field(default=None, min_length=1)
+
+
+class ToolExecutionRequest(BaseModel):
+    """Payload for running one approved Context Forge tool call."""
+
+    tool: str = Field(pattern=r"^terminal\.exec$")
+    cwd: str = Field(min_length=1)
+    command: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    timeout_seconds: int = Field(default=300, ge=1, le=3600)
 
 
 class ImportMarkdownRequest(BaseModel):
@@ -106,6 +126,16 @@ class ThreadResponse(BaseModel):
 
     conversation: ConversationSummaryResponse
     messages: list[MessageResponse]
+
+
+class ToolExecutionResponse(BaseModel):
+    """Thread response extended with the raw output from a tool execution."""
+
+    conversation: ConversationSummaryResponse
+    messages: list[MessageResponse]
+    exit_code: int
+    stdout: str
+    stderr: str
 
 
 class LatexSuiteSnippetResponse(BaseModel):
@@ -410,6 +440,111 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
                 raise conversation_not_found(conversation_id) from error
             raise message_not_found(message_id) from error
         return await get_active_thread(conversation_id)
+
+    @app.post(
+        "/api/conversations/{conversation_id}/messages/{message_id}/tool-executions",
+        response_model=ToolExecutionResponse,
+    )
+    async def execute_tool_call(
+        conversation_id: str,
+        message_id: str,
+        payload: ToolExecutionRequest,
+    ) -> dict[str, object]:
+        """Run one approved tool call and append the captured result."""
+        try:
+            thread = store.active_thread(conversation_id)
+        except FileNotFoundError as error:
+            raise conversation_not_found(conversation_id) from error
+
+        if not any(message.id == message_id for message in thread):
+            raise message_not_found(message_id)
+
+        try:
+            result = execute_terminal_command(
+                cwd=payload.cwd,
+                command=payload.command,
+                reason=payload.reason,
+                timeout_seconds=payload.timeout_seconds,
+            )
+        except ToolExecutionError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+        store.append_message(
+            conversation_id,
+            role="tool",
+            agent="contextforge",
+            content=format_terminal_result_markdown(
+                source_message_id=message_id,
+                result=result,
+            ),
+            message_format="markdown",
+        )
+        thread_data = await get_active_thread(conversation_id)
+        return {
+            **thread_data,
+            "exit_code": result.exit_code,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+
+    @app.post(
+        "/api/conversations/{conversation_id}/messages/{message_id}/tool-executions/stream",
+    )
+    async def stream_tool_execution(
+        conversation_id: str,
+        message_id: str,
+        payload: ToolExecutionRequest,
+    ) -> StreamingResponse:
+        """Run one approved tool call, streaming stdout/stderr as SSE then appending the result."""
+        try:
+            thread = store.active_thread(conversation_id)
+        except FileNotFoundError as error:
+            raise conversation_not_found(conversation_id) from error
+
+        if not any(message.id == message_id for message in thread):
+            raise message_not_found(message_id)
+
+        try:
+            validate_terminal_exec(cwd=payload.cwd, command=payload.command, reason=payload.reason)
+        except ToolExecutionError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+        async def generate():
+            try:
+                async for event in stream_terminal_command(
+                    cwd=payload.cwd,
+                    command=payload.command,
+                    timeout_seconds=payload.timeout_seconds,
+                ):
+                    yield f"data: {json_mod.dumps(event)}\n\n"
+                    if event["type"] == "exit":
+                        result = TerminalExecutionResult(
+                            cwd=payload.cwd,
+                            command=payload.command,
+                            reason=payload.reason,
+                            exit_code=int(event["code"]),
+                            stdout=str(event["stdout"]),
+                            stderr=str(event["stderr"]),
+                        )
+                        store.append_message(
+                            conversation_id,
+                            role="tool",
+                            agent="contextforge",
+                            content=format_terminal_result_markdown(
+                                source_message_id=message_id,
+                                result=result,
+                            ),
+                            message_format="markdown",
+                        )
+                        yield f"data: {json_mod.dumps({'type': 'done'})}\n\n"
+            except Exception as exc:
+                yield f"data: {json_mod.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @app.post(
         "/api/conversations/{conversation_id}/attachments",

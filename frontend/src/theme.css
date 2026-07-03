@@ -645,9 +645,62 @@ textarea {
   outline: none;
 }
 
+.cf-message-copy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--cf-subtle);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.cf-message-copy-button:hover,
+.cf-message-copy-button:focus-visible {
+  border-color: var(--cf-border-strong);
+  background: var(--cf-surface-muted);
+  color: var(--cf-text);
+  outline: none;
+}
+
+.cf-chatbot-copy-row {
+  display: flex;
+  margin-top: 10px;
+}
+
+.cf-chatbot-copy-button {
+  padding: 5px 12px;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 6px;
+  background: var(--cf-surface-muted);
+  color: var(--cf-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.cf-chatbot-copy-button:hover,
+.cf-chatbot-copy-button:focus-visible {
+  background: var(--cf-surface);
+  outline: none;
+}
+
 .cf-message-actions {
   position: relative;
   display: inline-flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.cf-message:hover .cf-message-actions,
+.cf-message:focus-within .cf-message-actions {
+  opacity: 1;
 }
 
 .cf-message-actions-menu {
@@ -841,6 +894,206 @@ textarea {
 
 .cf-code-copy:hover {
   border-color: var(--cf-border-strong);
+  box-shadow: var(--cf-glow);
+}
+
+.cf-tool-call-card {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0;
+  border: 1px solid color-mix(in srgb, var(--cf-accent) 38%, var(--cf-border));
+  border-radius: 14px;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--cf-accent) 14%, transparent),
+      color-mix(in srgb, var(--cf-surface-muted) 90%, transparent)
+    );
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.12);
+  padding: 12px;
+}
+
+.cf-tool-call-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cf-tool-call-title {
+  color: var(--cf-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.cf-tool-call-subtitle {
+  color: var(--cf-subtle);
+  font-family: monospace;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.cf-tool-call-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.cf-tool-call-field {
+  display: grid;
+  gap: 4px;
+}
+
+.cf-tool-call-field > span {
+  color: var(--cf-subtle);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cf-tool-call-field p,
+.cf-tool-call-field pre,
+.cf-tool-call-field code {
+  margin: 0;
+  border: 1px solid var(--cf-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--cf-bg) 72%, transparent);
+  color: var(--cf-text);
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 7px 8px;
+  white-space: pre-wrap;
+}
+
+.cf-tool-call-error {
+  border: 1px solid color-mix(in srgb, var(--cf-danger) 42%, var(--cf-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--cf-danger) 10%, transparent);
+  color: var(--cf-danger);
+  font-size: 12px;
+  padding: 8px;
+}
+
+.cf-tool-call-warning {
+  border: 1px solid color-mix(in srgb, #f59e0b 48%, var(--cf-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, #f59e0b 13%, transparent);
+  color: color-mix(in srgb, #92400e 72%, var(--cf-text));
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 8px;
+}
+
+.dark .cf-tool-call-warning {
+  color: #fbbf24;
+}
+
+.cf-tool-stream-log {
+  margin-top: 10px;
+  border: 1px solid var(--cf-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cf-tool-stream-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  background: color-mix(in srgb, var(--cf-surface-muted) 80%, transparent);
+  border-bottom: 1px solid var(--cf-border);
+  color: var(--cf-subtle);
+  font-size: 11px;
+  font-family: monospace;
+}
+
+.cf-tool-stream-spinner {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--cf-subtle);
+  border-top-color: var(--cf-text);
+  border-radius: 50%;
+  animation: cf-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes cf-spin {
+  to { transform: rotate(360deg); }
+}
+
+.cf-tool-stream-output {
+  margin: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--cf-bg) 72%, transparent);
+  color: var(--cf-text);
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.cf-tool-call-field--inline,
+.cf-tool-call-edit-field--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.cf-tool-call-field--inline > span,
+.cf-tool-call-edit-field--inline > span {
+  white-space: nowrap;
+}
+
+.cf-tool-call-edit-field--inline input {
+  width: 90px;
+}
+
+.cf-tool-call-edit-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.cf-tool-call-edit-field {
+  display: grid;
+  gap: 4px;
+}
+
+.cf-tool-call-edit-field > span {
+  color: var(--cf-subtle);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cf-tool-call-edit-field input,
+.cf-tool-call-edit-field textarea {
+  width: 100%;
+  border: 1px solid var(--cf-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--cf-bg) 78%, transparent);
+  color: var(--cf-text);
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  outline: none;
+  padding: 7px 8px;
+}
+
+.cf-tool-call-edit-field textarea {
+  resize: vertical;
+}
+
+.cf-tool-call-edit-field input:focus,
+.cf-tool-call-edit-field textarea:focus {
+  border-color: var(--cf-accent);
   box-shadow: var(--cf-glow);
 }
 

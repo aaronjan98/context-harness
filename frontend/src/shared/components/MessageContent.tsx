@@ -17,7 +17,7 @@
  * (Two distinct LaTeX concerns) for the rationale behind this split.
  */
 
-import { useState, type ComponentPropsWithoutRef } from 'react'
+import { useState, useEffect, useRef, type ComponentPropsWithoutRef } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -36,6 +36,7 @@ import sql from 'highlight.js/lib/languages/sql'
 import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
+import type { ToolExecutionRequest } from '@/api/conversations'
 
 hljs.registerLanguage('bash', bash)
 hljs.registerLanguage('css', css)
@@ -53,11 +54,21 @@ hljs.registerLanguage('yaml', yaml)
 
 interface MessageContentProps {
   content: string
+  onRunToolCall?: (toolCall: ToolExecutionRequest, toolCallKey: string) => void
+  runningToolCallKey?: string | null
+  toolStreamLog?: string
 }
 
 interface ImportedAttachment {
   label: string
   href?: string
+}
+
+interface ParsedToolCall {
+  key: string
+  raw: string
+  toolCall?: ToolExecutionRequest
+  error?: string
 }
 
 type MarkdownCodeProps = ComponentPropsWithoutRef<'code'> & {
@@ -211,63 +222,381 @@ function splitAttachmentCallouts(content: string) {
   return parts.length > 0 ? parts : [{ type: 'markdown' as const, content }]
 }
 
-export function MessageContent({ content }: MessageContentProps) {
-  const parts = splitAttachmentCallouts(content)
+function parseToolCall(raw: string, key: string): ParsedToolCall {
+  try {
+    const value: unknown = JSON.parse(raw)
+    if (!value || typeof value !== 'object') {
+      return { key, raw, error: 'Tool call must be a JSON object.' }
+    }
+
+    const candidate = value as Record<string, unknown>
+    const tool = candidate.tool
+    const cwd = candidate.cwd
+    const command = candidate.command
+    const reason = candidate.reason
+    const timeout_seconds =
+      typeof candidate.timeout_seconds === 'number' ? candidate.timeout_seconds : 300
+    if (tool !== 'terminal.exec') {
+      return { key, raw, error: 'Only terminal.exec is supported right now.' }
+    }
+    if (
+      typeof cwd !== 'string' ||
+      typeof command !== 'string' ||
+      typeof reason !== 'string'
+    ) {
+      return {
+        key,
+        raw,
+        error: 'Tool call requires string cwd, command, and reason fields.',
+      }
+    }
+
+    return {
+      key,
+      raw,
+      toolCall: {
+        tool,
+        cwd,
+        command,
+        reason,
+        timeout_seconds,
+      },
+    }
+  } catch (error) {
+    return {
+      key,
+      raw,
+      error: error instanceof Error ? error.message : 'Invalid JSON tool call.',
+    }
+  }
+}
+
+function splitToolCallBlocks(content: string) {
+  const pattern = /(^|\n)```contextforge-tool[^\n]*\n([\s\S]*?)\n```/g
+  const parts: Array<
+    | { type: 'markdown'; content: string }
+    | { type: 'tool-call'; toolCall: ParsedToolCall }
+  > = []
+  let cursor = 0
+  let index = 0
+  let match: RegExpExecArray | null
+
+  while ((match = pattern.exec(content)) !== null) {
+    const start = match.index + match[1].length
+    if (start > cursor) {
+      parts.push({ type: 'markdown', content: content.slice(cursor, start) })
+    }
+
+    parts.push({
+      type: 'tool-call',
+      toolCall: parseToolCall(match[2].trim(), `tool-${index}`),
+    })
+    cursor = start + match[0].length - match[1].length
+    index += 1
+  }
+
+  if (cursor < content.length) {
+    parts.push({ type: 'markdown', content: content.slice(cursor) })
+  }
+
+  return parts.length > 0 ? parts : [{ type: 'markdown' as const, content }]
+}
+
+function renderMarkdownPart(content: string, keyPrefix: string) {
+  return splitAttachmentCallouts(content).map((part, index) => {
+    if (part.type === 'attachments') {
+      return (
+        <div key={`${keyPrefix}-attachments-${index}`} className="cf-imported-attachment-list">
+          {part.attachments.map((attachment) => {
+            const body = (
+              <>
+                <span className="cf-attachment-icon">FILE</span>
+                <span className="cf-attachment-details">
+                  <span className="cf-attachment-name">
+                    {attachment.label}
+                  </span>
+                  <span className="cf-attachment-meta">
+                    Imported attachment reference
+                  </span>
+                </span>
+              </>
+            )
+
+            return attachment.href ? (
+              <a
+                key={`${attachment.label}-${attachment.href}`}
+                className="cf-attachment-card"
+                href={attachment.href}
+              >
+                {body}
+              </a>
+            ) : (
+              <div
+                key={attachment.label}
+                className="cf-attachment-card cf-attachment-card-unavailable"
+                title="Reference only: this imported transcript included the attachment name, not the media file. Upload the file to Context Forge to preview it."
+                aria-disabled="true"
+              >
+                {body}
+              </div>
+            )
+          })}
+        </div>
+      )
+    }
+
+    return (
+      <ReactMarkdown
+        key={`${keyPrefix}-markdown-${index}`}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+        components={markdownComponents}
+      >
+        {part.content}
+      </ReactMarkdown>
+    )
+  })
+}
+
+function ToolCallCard({
+  parsed,
+  onRun,
+  isRunning,
+  streamLog,
+}: {
+  parsed: ParsedToolCall
+  onRun?: (toolCall: ToolExecutionRequest, toolCallKey: string) => void
+  isRunning: boolean
+  streamLog?: string
+}) {
+  const [copied, setCopied] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
+  const logRef = useRef<HTMLPreElement>(null)
+
+  useEffect(() => {
+    if (!isRunning) { setElapsed(0); return }
+    setElapsed(0)
+    const id = window.setInterval(() => setElapsed((s) => s + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [isRunning])
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+  }, [streamLog])
+  const toolCall = parsed.toolCall
+  const [draftToolCall, setDraftToolCall] = useState<ToolExecutionRequest | null>(
+    toolCall ?? null,
+  )
+  const activeToolCall = draftToolCall ?? toolCall
+  const warning = activeToolCall
+    ? commandQuoteWarning(activeToolCall.command)
+    : null
+
+  async function copyCommand() {
+    if (!activeToolCall) return
+    try {
+      await navigator.clipboard.writeText(activeToolCall.command)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1400)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  function updateDraft(field: 'cwd' | 'command' | 'reason', value: string): void
+  function updateDraft(field: 'timeout_seconds', value: number): void
+  function updateDraft(field: string, value: string | number) {
+    if (!activeToolCall) return
+    setDraftToolCall({
+      ...activeToolCall,
+      [field]: value,
+    })
+  }
+
+  function resetDraft() {
+    setDraftToolCall(toolCall ?? null)
+    setIsEditing(false)
+  }
+
+  return (
+    <div
+      className="cf-tool-call-card"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="cf-tool-call-header">
+        <div>
+          <div className="cf-tool-call-title">Context Forge tool request</div>
+          <div className="cf-tool-call-subtitle">
+            {activeToolCall?.tool ?? 'invalid tool call'}
+          </div>
+        </div>
+        <div className="cf-tool-call-actions">
+          <button
+            type="button"
+            className="cf-secondary-button"
+            onClick={(event) => {
+              event.stopPropagation()
+              setIsEditing((value) => !value)
+            }}
+            disabled={!activeToolCall || isRunning}
+          >
+            {isEditing ? 'Preview' : 'Edit'}
+          </button>
+          <button
+            type="button"
+            className="cf-secondary-button"
+            onClick={(event) => {
+              event.stopPropagation()
+              copyCommand()
+            }}
+            disabled={!activeToolCall}
+          >
+            {copied ? 'Copied' : 'Copy command'}
+          </button>
+          {isEditing && (
+            <button
+              type="button"
+              className="cf-secondary-button"
+              onClick={(event) => {
+                event.stopPropagation()
+                resetDraft()
+              }}
+              disabled={isRunning}
+            >
+              Reset
+            </button>
+          )}
+          <button
+            type="button"
+            className="cf-primary-button"
+            onClick={(event) => {
+              event.stopPropagation()
+              if (activeToolCall) onRun?.(activeToolCall, parsed.key)
+            }}
+            disabled={!activeToolCall || !onRun || isRunning}
+          >
+            {isRunning ? 'Running...' : 'Run'}
+          </button>
+        </div>
+      </div>
+      {parsed.error ? (
+        <div className="cf-tool-call-error">{parsed.error}</div>
+      ) : isEditing && activeToolCall ? (
+        <div className="cf-tool-call-edit-grid">
+          <label className="cf-tool-call-edit-field">
+            <span>Reason</span>
+            <textarea
+              value={activeToolCall.reason}
+              onChange={(event) => updateDraft('reason', event.target.value)}
+              rows={2}
+            />
+          </label>
+          <label className="cf-tool-call-edit-field">
+            <span>Working directory</span>
+            <input
+              value={activeToolCall.cwd}
+              onChange={(event) => updateDraft('cwd', event.target.value)}
+            />
+          </label>
+          <label className="cf-tool-call-edit-field">
+            <span>Command</span>
+            <textarea
+              value={activeToolCall.command}
+              onChange={(event) => updateDraft('command', event.target.value)}
+              rows={8}
+              spellCheck={false}
+            />
+          </label>
+          <label className="cf-tool-call-edit-field cf-tool-call-edit-field--inline">
+            <span>Timeout (seconds)</span>
+            <input
+              type="number"
+              min={1}
+              max={3600}
+              value={activeToolCall.timeout_seconds}
+              onChange={(event) =>
+                updateDraft('timeout_seconds', Math.max(1, parseInt(event.target.value, 10) || 300))
+              }
+            />
+          </label>
+          {warning && (
+            <div className="cf-tool-call-warning">{warning}</div>
+          )}
+        </div>
+      ) : (
+        <>
+          {warning && (
+            <div className="cf-tool-call-warning">{warning}</div>
+          )}
+          <div className="cf-tool-call-field">
+            <span>Reason</span>
+            <p>{activeToolCall?.reason}</p>
+          </div>
+          <div className="cf-tool-call-field">
+            <span>Working directory</span>
+            <code>{activeToolCall?.cwd}</code>
+          </div>
+          <div className="cf-tool-call-field">
+            <span>Command</span>
+            <pre>{activeToolCall?.command}</pre>
+          </div>
+          <div className="cf-tool-call-field cf-tool-call-field--inline">
+            <span>Timeout</span>
+            <code>{activeToolCall?.timeout_seconds ?? 300}s</code>
+          </div>
+        </>
+      )}
+      {isRunning && (
+        <div className="cf-tool-stream-log">
+          <div className="cf-tool-stream-header">
+            <span className="cf-tool-stream-spinner" />
+            Running… {elapsed}s
+          </div>
+          <pre ref={logRef} className="cf-tool-stream-output">
+            {streamLog || ' '}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function commandQuoteWarning(command: string): string | null {
+  if (
+    /\bssh\s+\S+\s+'[^']*sqlite3/.test(command) &&
+    /''[^']+''/.test(command)
+  ) {
+    return 'This looks like nested SSH/SQLite quoting. Single quotes inside the SSH single-quoted command may be stripped before SQLite sees them. Consider editing the command before running.'
+  }
+  return null
+}
+
+export function MessageContent({
+  content,
+  onRunToolCall,
+  runningToolCallKey,
+  toolStreamLog,
+}: MessageContentProps) {
+  const parts = splitToolCallBlocks(content)
 
   return (
     <div className="cf-message-content">
       {parts.map((part, index) => {
-        if (part.type === 'attachments') {
+        if (part.type === 'tool-call') {
+          const isRunning = runningToolCallKey === part.toolCall.key
           return (
-            <div key={index} className="cf-imported-attachment-list">
-              {part.attachments.map((attachment) => {
-                const body = (
-                  <>
-                    <span className="cf-attachment-icon">FILE</span>
-                    <span className="cf-attachment-details">
-                      <span className="cf-attachment-name">
-                        {attachment.label}
-                      </span>
-                      <span className="cf-attachment-meta">
-                        Imported attachment reference
-                      </span>
-                    </span>
-                  </>
-                )
-
-                return attachment.href ? (
-                  <a
-                    key={`${attachment.label}-${attachment.href}`}
-                    className="cf-attachment-card"
-                    href={attachment.href}
-                  >
-                    {body}
-                  </a>
-                ) : (
-                  <div
-                    key={attachment.label}
-                    className="cf-attachment-card cf-attachment-card-unavailable"
-                    title="Reference only: this imported transcript included the attachment name, not the media file. Upload the file to Context Forge to preview it."
-                    aria-disabled="true"
-                  >
-                    {body}
-                  </div>
-                )
-              })}
-            </div>
+            <ToolCallCard
+              key={`${part.toolCall.key}-${index}`}
+              parsed={part.toolCall}
+              onRun={onRunToolCall}
+              isRunning={isRunning}
+              streamLog={isRunning ? toolStreamLog : undefined}
+            />
           )
         }
 
-        return (
-          <ReactMarkdown
-            key={index}
-            remarkPlugins={[remarkGfm, remarkMath]}
-            rehypePlugins={[rehypeKatex]}
-            components={markdownComponents}
-          >
-            {part.content}
-          </ReactMarkdown>
-        )
+        return renderMarkdownPart(part.content, `part-${index}`)
       })}
     </div>
   )

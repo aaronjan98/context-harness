@@ -1,5 +1,7 @@
 """Integration tests for the FastAPI conversation API."""
 
+from pathlib import Path
+
 
 def test_docs_route_uses_context_forge_theme(client) -> None:
     response = client.get("/docs")
@@ -316,6 +318,78 @@ def test_delete_message_returns_updated_thread_and_soft_deletes(client, store) -
     assert deleted.deleted_at is not None
     assert "Delete me." not in export_text
     assert "Third." in export_text
+
+
+def test_execute_tool_call_appends_terminal_result(client, tmp_path: Path) -> None:
+    client.post("/api/conversations", json={"conversation_id": "api-tool-run"})
+    client.post(
+        "/api/conversations/api-tool-run/messages",
+        json={"role": "user", "content": "Please inspect the project."},
+    )
+    client.post(
+        "/api/conversations/api-tool-run/messages",
+        json={
+            "role": "assistant",
+            "agent": "chatgpt",
+            "content": (
+                "```contextforge-tool\n"
+                "{\n"
+                '  "tool": "terminal.exec",\n'
+                f'  "cwd": "{tmp_path}",\n'
+                '  "command": "printf hello",\n'
+                '  "reason": "Verify command execution."\n'
+                "}\n"
+                "```"
+            ),
+        },
+    )
+
+    response = client.post(
+        "/api/conversations/api-tool-run/messages/m0002/tool-executions",
+        json={
+            "tool": "terminal.exec",
+            "cwd": str(tmp_path),
+            "command": "printf hello",
+            "reason": "Verify command execution.",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [message["id"] for message in payload["messages"]] == [
+        "m0001",
+        "m0002",
+        "m0003",
+    ]
+    tool_message = payload["messages"][2]
+    assert tool_message["role"] == "tool"
+    assert tool_message["agent"] == "contextforge"
+    assert "Requesting message: `m0002`" in tool_message["content"]
+    assert "Exit code: `0`" in tool_message["content"]
+    assert "hello" in tool_message["content"]
+
+
+def test_execute_tool_call_rejects_blocked_command(client, tmp_path: Path) -> None:
+    client.post("/api/conversations", json={"conversation_id": "api-tool-block"})
+    client.post(
+        "/api/conversations/api-tool-block/messages",
+        json={"role": "assistant", "agent": "chatgpt", "content": "run this"},
+    )
+
+    response = client.post(
+        "/api/conversations/api-tool-block/messages/m0001/tool-executions",
+        json={
+            "tool": "terminal.exec",
+            "cwd": str(tmp_path),
+            "command": "sudo id",
+            "reason": "This should be blocked.",
+        },
+    )
+    thread = client.get("/api/conversations/api-tool-block/thread")
+
+    assert response.status_code == 400
+    assert "sudo commands" in response.json()["detail"]
+    assert len(thread.json()["messages"]) == 1
 
 
 def test_upload_attachment_and_attach_to_message(client) -> None:
