@@ -401,6 +401,26 @@ textarea {
   opacity: 0.45;
 }
 
+.cf-export-menu-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  color: var(--cf-text);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 7px 9px;
+}
+
+.cf-export-menu-toggle:hover {
+  background: var(--cf-surface-muted);
+}
+
+.cf-export-menu-toggle input {
+  accent-color: var(--cf-accent);
+}
+
 .cf-export-menu-divider {
   height: 1px;
   background: var(--cf-border);
@@ -1126,6 +1146,91 @@ textarea {
   border-radius: 14px;
   background: var(--cf-surface);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+
+.cf-bootstrap-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(920px, 92vw);
+  height: min(820px, 90vh);
+  overflow: hidden;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 14px;
+  background: var(--cf-surface);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+
+.cf-bootstrap-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+
+.cf-bootstrap-field {
+  display: grid;
+  gap: 6px;
+}
+
+.cf-bootstrap-field span {
+  color: var(--cf-subtle);
+  font-size: 12px;
+}
+
+.cf-bootstrap-field input,
+.cf-bootstrap-field select,
+.cf-bootstrap-field textarea {
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 9px;
+  background: var(--cf-bg);
+  color: var(--cf-text);
+  font: inherit;
+  line-height: 1.45;
+  padding: 9px 10px;
+}
+
+.cf-bootstrap-field input:focus,
+.cf-bootstrap-field select:focus,
+.cf-bootstrap-field textarea:focus {
+  border-color: var(--cf-accent);
+  box-shadow: var(--cf-glow);
+  outline: none;
+}
+
+.cf-bootstrap-hint {
+  grid-column: 1 / -1;
+  border: 1px solid var(--cf-border);
+  border-radius: 10px;
+  background: var(--cf-surface-muted);
+  color: var(--cf-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 10px;
+}
+
+.cf-bootstrap-task,
+.cf-bootstrap-preview {
+  grid-column: 1 / -1;
+}
+
+.cf-bootstrap-task textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.cf-bootstrap-preview textarea {
+  min-height: 300px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.cf-bootstrap-status {
+  grid-column: 1 / -1;
+  border: 1px solid var(--cf-border);
+  border-radius: 10px;
 }
 
 .cf-message-insert-fields {

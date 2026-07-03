@@ -491,6 +491,19 @@
     return blockChildrenToMarkdown(root)
   }
 
+  function plainUserTextToMarkdown(text) {
+    const normalized = normalizeText(text)
+    if (!normalized) return ''
+
+    // ChatGPT renders fenced-code user input as code widgets whose innerText may
+    // omit the backticks. Preserve Context Forge tool requests as fences when
+    // falling back to plain text extraction.
+    return normalized.replace(
+      /(^|\n)(contextforge-tool)\n(\{\n[\s\S]*?\n\})(?=\n|$)/g,
+      (_, prefix, language, json) => `${prefix}\`\`\`${language}\n${json}\n\`\`\``,
+    )
+  }
+
   function findMessageRoots(turn, role) {
     const exactRoots = Array.from(
       turn.querySelectorAll(`[data-message-author-role="${role}"]`),
@@ -512,8 +525,9 @@
     }
 
     return (
+      messageRoot.querySelector('[data-testid="user-message"]') ??
       messageRoot.querySelector('.whitespace-pre-wrap') ??
-      messageRoot.querySelector('[data-message-id]') ??
+      messageRoot.querySelector('[class*="break-words"]') ??
       messageRoot
     )
   }
@@ -544,6 +558,21 @@
   }
 
   function turnContentToMarkdown(turn, role) {
+    if (role === 'user') {
+      const candidates = [
+        ...Array.from(turn.querySelectorAll('[data-testid="user-message"]')),
+        ...Array.from(turn.querySelectorAll('.whitespace-pre-wrap')),
+        ...Array.from(turn.querySelectorAll('[data-message-author-role="user"]')),
+        turn,
+      ]
+      const plain = candidates
+        .map((candidate) => plainUserTextToMarkdown(candidate.innerText ?? ''))
+        .filter(Boolean)
+        .sort((left, right) => right.length - left.length)[0]
+
+      if (plain) return plain
+    }
+
     const roots = findMessageRoots(turn, role)
     const parts = roots
       .map((root) => contentToMarkdown(findContentRoot(root, role)))

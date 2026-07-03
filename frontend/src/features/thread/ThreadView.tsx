@@ -37,7 +37,6 @@ import {
   ApiError,
   fetchMessages,
   appendMessage,
-  currentExportDownloadUrl,
   fetchCurrentExportMarkdown,
   importMarkdown,
   insertMessage,
@@ -87,6 +86,125 @@ function messageToMarkdown(message: Message): string {
 
 function messagesToMarkdown(messages: Message[]): string {
   return messages.map(messageToMarkdown).join('\n\n')
+}
+
+const TOOL_PROTOCOL_PREAMBLE = String.raw`## Context Forge Tool Protocol
+
+You are continuing a conversation managed by Context Forge.
+
+You cannot run terminal commands directly. If local terminal execution is needed, request it using exactly one fenced block with the \`contextforge-tool\` language:
+
+\`\`\`contextforge-tool
+{
+  "tool": "terminal.exec",
+  "cwd": "/absolute/path",
+  "command": "command to run",
+  "reason": "why this command is needed"
+}
+\`\`\`
+
+Rules:
+- Do not claim you ran commands yourself.
+- Do not output terminal results unless Context Forge has returned them.
+- Use an absolute \`cwd\`.
+- Keep commands minimal and focused.
+- Do not put secrets in commands.
+- Do not request destructive commands unless explicitly necessary.
+- Wait for Context Forge to execute approved commands and return the result.`
+
+function withToolProtocol(markdown: string, enabled: boolean): string {
+  if (!enabled) return markdown
+  return `${TOOL_PROTOCOL_PREAMBLE}\n\n---\n\n${markdown}`.trim()
+}
+
+function downloadMarkdown(filename: string, markdown: string) {
+  const blob = new Blob([markdown], {
+    type: 'text/markdown;charset=utf-8',
+  })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+type BootstrapPreset = 'workspace-router' | 'current-directory' | 'full-orientation'
+
+function bootstrapPresetDescription(preset: BootstrapPreset): string {
+  if (preset === 'current-directory') {
+    return 'Start by requesting project context files in the working directory.'
+  }
+  if (preset === 'full-orientation') {
+    return 'Start with global agent orientation, tool commands, then route from ~/Repositories.'
+  }
+  return 'Start from ~/Repositories/ROUTER.md and drill into the relevant area/repo.'
+}
+
+function buildBootstrapPrompt({
+  cwd,
+  task,
+  preset,
+}: {
+  cwd: string
+  task: string
+  preset: BootstrapPreset
+}): string {
+  const trimmedCwd = cwd.trim() || '/home/aj/Repositories'
+  const trimmedTask = task.trim()
+  const orientation =
+    preset === 'current-directory'
+      ? `Start by requesting the smallest useful reads from the working directory:
+- \`CONTEXT.md\`
+- \`MEMORY.md\`
+- \`DEPENDENCIES.md\` if it exists
+
+If the target is unclear, request \`~/Repositories/ROUTER.md\` and drill down from there.`
+      : preset === 'full-orientation'
+        ? `Start by requesting the global orientation files, then route from the workspace:
+- \`~/.config/ai/shared/agent-orientation.md\`
+- \`~/.config/ai/shared/tool-commands.md\`
+- \`~/Repositories/ROUTER.md\`
+
+After that, request the relevant area \`CONTEXT.md\`, then the target repo's \`CONTEXT.md\`, \`MEMORY.md\`, and \`DEPENDENCIES.md\` if present.`
+        : `Start by requesting \`~/Repositories/ROUTER.md\`, then drill into the relevant area \`CONTEXT.md\`, then the target repo's \`CONTEXT.md\`, \`MEMORY.md\`, and \`DEPENDENCIES.md\` if present.`
+
+  const taskBlock = trimmedTask
+    ? `\n\nTask:\n\n${trimmedTask}`
+    : ''
+
+  return `You are starting a new conversation that will be coordinated through Context Forge, a local harness on my machine.
+
+You are not directly inside my filesystem. You do not have direct terminal, filesystem, SSH, browser, GUI, or editor access.
+
+Context Forge can run approved local commands and return results. If you need to inspect files, list directories, SSH into machines, run scripts, verify state, or execute any command, request it using the Context Forge tool protocol.
+
+Working directory:
+\`${trimmedCwd}\`
+
+Interpret my request relative to that working directory unless I say otherwise.
+
+${orientation}
+
+Use exactly one fenced block when requesting local execution:
+
+\`\`\`contextforge-tool
+{
+  "tool": "terminal.exec",
+  "cwd": "${trimmedCwd}",
+  "command": "command to run",
+  "reason": "why this command is needed"
+}
+\`\`\`
+
+Rules:
+- Do not claim you read files or ran commands yourself.
+- Do not output terminal results unless Context Forge has returned them.
+- Ask for the smallest command that gives the next needed piece of context.
+- Use absolute paths or shell-expanded home paths clearly.
+- Do not put secrets in commands.
+- Do not request destructive commands unless explicitly necessary and clearly justified.
+- Wait for Context Forge to return command results before continuing.${taskBlock}`.trim()
 }
 
 interface EditorTrayProps {
@@ -533,6 +651,104 @@ function MessageInsertModal({
   )
 }
 
+interface BootstrapPromptModalProps {
+  onClose: () => void
+}
+
+function BootstrapPromptModal({ onClose }: BootstrapPromptModalProps) {
+  const [cwd, setCwd] = useState('/home/aj/Repositories')
+  const [preset, setPreset] = useState<BootstrapPreset>('workspace-router')
+  const [task, setTask] = useState('')
+  const [status, setStatus] = useState<string | null>(null)
+  const prompt = buildBootstrapPrompt({ cwd, preset, task })
+
+  async function copyPrompt() {
+    try {
+      await navigator.clipboard.writeText(prompt)
+      setStatus('Copied bootstrap prompt.')
+      window.setTimeout(() => setStatus(null), 2400)
+    } catch (error) {
+      setStatus(
+        error instanceof Error
+          ? error.message
+          : 'Failed to copy bootstrap prompt.',
+      )
+    }
+  }
+
+  return (
+    <div className="cf-attachment-overlay" role="dialog" aria-modal="true">
+      <div className="cf-bootstrap-modal">
+        <div className="cf-attachment-modal-header">
+          <div>
+            <div className="cf-attachment-modal-title">
+              Bootstrap new chatbot session
+            </div>
+            <div className="cf-attachment-modal-meta">
+              Copy this as the first message in ChatGPT, Claude, Gemini, or Open WebUI.
+            </div>
+          </div>
+          <div className="cf-attachment-modal-actions">
+            <button
+              type="button"
+              className="cf-secondary-button"
+              onClick={onClose}
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              className="cf-primary-button"
+              onClick={copyPrompt}
+            >
+              Copy prompt
+            </button>
+          </div>
+        </div>
+        <div className="cf-bootstrap-body">
+          <label className="cf-bootstrap-field">
+            <span>Working directory</span>
+            <input
+              value={cwd}
+              onChange={(event) => setCwd(event.target.value)}
+              placeholder="/home/aj/Repositories"
+            />
+          </label>
+          <label className="cf-bootstrap-field">
+            <span>Orientation preset</span>
+            <select
+              value={preset}
+              onChange={(event) => setPreset(event.target.value as BootstrapPreset)}
+            >
+              <option value="workspace-router">Workspace router</option>
+              <option value="current-directory">Current directory</option>
+              <option value="full-orientation">Full agent orientation</option>
+            </select>
+          </label>
+          <div className="cf-bootstrap-hint">
+            {bootstrapPresetDescription(preset)}
+          </div>
+          <label className="cf-bootstrap-field cf-bootstrap-task">
+            <span>Initial task, optional</span>
+            <textarea
+              value={task}
+              onChange={(event) => setTask(event.target.value)}
+              placeholder="Ask the chatbot what you want it to accomplish. Leave blank if you only want the generic bootstrap instructions."
+            />
+          </label>
+          <label className="cf-bootstrap-field cf-bootstrap-preview">
+            <span>Preview</span>
+            <textarea value={prompt} readOnly />
+          </label>
+          {status && (
+            <div className="cf-export-status cf-bootstrap-status">{status}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ThreadView() {
   const { id } = conversationRoute.useParams()
   const { panel } = conversationRoute.useSearch()
@@ -543,6 +759,8 @@ export function ThreadView() {
   const [importContent, setImportContent] = useState('')
   const [importError, setImportError] = useState<string | null>(null)
   const [exportStatus, setExportStatus] = useState<string | null>(null)
+  const [isBootstrapOpen, setIsBootstrapOpen] = useState(false)
+  const [includeToolProtocol, setIncludeToolProtocol] = useState(false)
   const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(
     () => new Set(),
   )
@@ -707,14 +925,43 @@ export function ThreadView() {
     setExportStatus(null)
     try {
       const markdown = await fetchCurrentExportMarkdown(id)
-      await navigator.clipboard.writeText(markdown)
-      setExportStatus('Copied Markdown export.')
+      await navigator.clipboard.writeText(
+        withToolProtocol(markdown, includeToolProtocol),
+      )
+      setExportStatus(
+        includeToolProtocol
+          ? 'Copied Markdown export with tool protocol.'
+          : 'Copied Markdown export.',
+      )
       window.setTimeout(() => setExportStatus(null), 2400)
     } catch (exportError) {
       setExportStatus(
         exportError instanceof Error
           ? exportError.message
           : 'Failed to copy Markdown export.',
+      )
+    }
+  }
+
+  async function handleDownloadExport() {
+    setExportStatus(null)
+    try {
+      const markdown = await fetchCurrentExportMarkdown(id)
+      downloadMarkdown(
+        includeToolProtocol ? `${id}-with-tools.md` : `${id}.md`,
+        withToolProtocol(markdown, includeToolProtocol),
+      )
+      setExportStatus(
+        includeToolProtocol
+          ? 'Downloaded Markdown export with tool protocol.'
+          : 'Downloaded Markdown export.',
+      )
+      window.setTimeout(() => setExportStatus(null), 2400)
+    } catch (exportError) {
+      setExportStatus(
+        exportError instanceof Error
+          ? exportError.message
+          : 'Failed to download Markdown export.',
       )
     }
   }
@@ -740,8 +987,14 @@ export function ThreadView() {
     if (selected.length === 0) return
 
     try {
-      await navigator.clipboard.writeText(messagesToMarkdown(selected))
-      setExportStatus(`Copied ${selected.length} selected message(s).`)
+      await navigator.clipboard.writeText(
+        withToolProtocol(messagesToMarkdown(selected), includeToolProtocol),
+      )
+      setExportStatus(
+        includeToolProtocol
+          ? `Copied ${selected.length} selected message(s) with tool protocol.`
+          : `Copied ${selected.length} selected message(s).`,
+      )
       window.setTimeout(() => setExportStatus(null), 2400)
     } catch (exportError) {
       setExportStatus(
@@ -756,16 +1009,17 @@ export function ThreadView() {
     const selected = selectedMessages()
     if (selected.length === 0) return
 
-    const blob = new Blob([messagesToMarkdown(selected)], {
-      type: 'text/markdown;charset=utf-8',
-    })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `${id}-selected.md`
-    link.click()
-    URL.revokeObjectURL(url)
-    setExportStatus(`Downloaded ${selected.length} selected message(s).`)
+    downloadMarkdown(
+      includeToolProtocol
+        ? `${id}-selected-with-tools.md`
+        : `${id}-selected.md`,
+      withToolProtocol(messagesToMarkdown(selected), includeToolProtocol),
+    )
+    setExportStatus(
+      includeToolProtocol
+        ? `Downloaded ${selected.length} selected message(s) with tool protocol.`
+        : `Downloaded ${selected.length} selected message(s).`,
+    )
     window.setTimeout(() => setExportStatus(null), 2400)
   }
 
@@ -800,6 +1054,17 @@ export function ThreadView() {
             type="button"
             className="cf-link-pill cf-toolbar-button"
             onClick={() => {
+              setIsImportOpen(false)
+              setIsExportOpen(false)
+              setIsBootstrapOpen(true)
+            }}
+          >
+            Bootstrap Chat
+          </button>
+          <button
+            type="button"
+            className="cf-link-pill cf-toolbar-button"
+            onClick={() => {
               setImportError(null)
               setIsExportOpen(false)
               setIsImportOpen((value) => !value)
@@ -828,6 +1093,19 @@ export function ThreadView() {
           </button>
           {isExportOpen && (
             <div className="cf-export-menu">
+              <label className="cf-export-menu-toggle">
+                <input
+                  type="checkbox"
+                  checked={includeToolProtocol}
+                  onChange={(event) => setIncludeToolProtocol(event.target.checked)}
+                />
+                <span>Include tool protocol prompt</span>
+              </label>
+              <div className="cf-export-menu-note">
+                Adds instructions that tell ChatGPT, Claude, or Gemini how to
+                request terminal commands through Context Forge.
+              </div>
+              <div className="cf-export-menu-divider" />
               <button
                 type="button"
                 className="cf-export-menu-item"
@@ -835,12 +1113,13 @@ export function ThreadView() {
               >
                 Copy full thread
               </button>
-              <a
+              <button
+                type="button"
                 className="cf-export-menu-item"
-                href={currentExportDownloadUrl(id)}
+                onClick={handleDownloadExport}
               >
                 Download full thread
-              </a>
+              </button>
               <div className="cf-export-menu-divider" />
               <div className="cf-export-menu-note">
                 {selectedCount > 0
@@ -1181,6 +1460,10 @@ export function ThreadView() {
             </div>
           </div>
         </div>
+      )}
+
+      {isBootstrapOpen && (
+        <BootstrapPromptModal onClose={() => setIsBootstrapOpen(false)} />
       )}
 
       {editingMessage && (
