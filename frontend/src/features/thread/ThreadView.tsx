@@ -17,7 +17,10 @@
  */
 
 import {
+  memo,
+  useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type Dispatch,
@@ -25,6 +28,7 @@ import {
   type SetStateAction,
 } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { conversationRoute } from '@/app/router'
@@ -207,6 +211,271 @@ Rules:
 - Do not request destructive commands unless explicitly necessary and clearly justified.
 - Wait for Context Forge to return command results before continuing.${taskBlock}`.trim()
 }
+
+function formatChatbotCopy(command: string, stdout: string, stderr: string, exitCode: number): string {
+  const parts = [`Command:\n\`\`\`bash\n${command}\n\`\`\``]
+  if (exitCode !== 0) parts.push(`Exit code: ${exitCode}`)
+  parts.push(`Result:\n\`\`\`text\n${stdout || '(no stdout)'}\n\`\`\``)
+  if (stderr) parts.push(`Stderr:\n\`\`\`text\n${stderr}\n\`\`\``)
+  return parts.join('\n')
+}
+
+function parseChatbotCopy(content: string): string | null {
+  const cmdMatch = /\nCommand:\n(`{3,})bash\n([\s\S]*?)\n\1/.exec(content)
+  const stdoutMatch = /\nStdout:\n(`{3,})(?:text)?\n([\s\S]*?)\n\2/.exec(content)
+  const stderrMatch = /\nStderr:\n(`{3,})(?:text)?\n([\s\S]*?)\n\2/.exec(content)
+  const exitMatch = /\nExit code: `(\d+)`/.exec(content)
+  if (!cmdMatch || !stdoutMatch) return null
+  const stdout = stdoutMatch[2].trim()
+  const stderr = stderrMatch ? stderrMatch[2].trim() : ''
+  const exitCode = exitMatch ? parseInt(exitMatch[1], 10) : 0
+  const effectiveStdout = stdout === '(no stdout)' ? '' : stdout
+  const effectiveStderr = stderr === '(no stderr)' ? '' : stderr
+  return formatChatbotCopy(cmdMatch[2], effectiveStdout, effectiveStderr, exitCode)
+}
+
+// ── MessageRow ────────────────────────────────────────────────────────────────
+// Memoized so it only re-renders when its own props change. Per-message booleans
+// (isCopied, isSelected, etc.) are computed in the parent from global state,
+// so only the affected row(s) see a prop change on each interaction.
+
+interface MessageRowProps {
+  msg: Message
+  isExportOpen: boolean
+  isSelected: boolean
+  isCopied: boolean
+  isChatbotCopied: boolean
+  isActionsOpen: boolean
+  isDeletingMessage: boolean
+  runningToolCallKey: string | null
+  toolStreamLog: string | undefined
+  onSetCopied: Dispatch<SetStateAction<string | null>>
+  onToggleSelection: (id: string) => void
+  onToggleActions: (id: string) => void
+  onEdit: (msg: Message) => void
+  onInsertBefore: (msg: Message) => void
+  onInsertAfter: (msg: Message) => void
+  onDelete: (msg: Message) => void
+  onRunToolCall: (messageId: string, toolCall: ToolExecutionRequest, key: string) => void
+  onPreviewAttachment: (attachment: Attachment) => void
+}
+
+const MessageRow = memo(function MessageRow({
+  msg,
+  isExportOpen,
+  isSelected,
+  isCopied,
+  isChatbotCopied,
+  isActionsOpen,
+  isDeletingMessage,
+  runningToolCallKey,
+  toolStreamLog,
+  onSetCopied,
+  onToggleSelection,
+  onToggleActions,
+  onEdit,
+  onInsertBefore,
+  onInsertAfter,
+  onDelete,
+  onRunToolCall,
+  onPreviewAttachment,
+}: MessageRowProps) {
+  const chatbotCopyText = useMemo(() => {
+    if (msg.role !== 'tool' || msg.agent !== 'contextforge') return null
+    return parseChatbotCopy(msg.content)
+  }, [msg.role, msg.agent, msg.content])
+
+  const handleRunToolCall = useCallback(
+    (toolCall: ToolExecutionRequest, toolCallKey: string) =>
+      onRunToolCall(msg.id, toolCall, toolCallKey),
+    [msg.id, onRunToolCall],
+  )
+
+  const chatbotCopyId = `chatbot:${msg.id}`
+
+  return (
+    <div
+      className={`cf-message-row ${isExportOpen ? 'cf-message-row-selecting' : ''}`}
+    >
+      {isExportOpen && (
+        <button
+          type="button"
+          className={`cf-message-select-dot ${
+            isSelected ? 'cf-message-select-dot-active' : ''
+          }`}
+          onClick={() => onToggleSelection(msg.id)}
+          aria-label={
+            isSelected
+              ? `Deselect message ${msg.id}`
+              : `Select message ${msg.id}`
+          }
+          aria-pressed={isSelected}
+        />
+      )}
+      <div
+        role={isExportOpen ? 'button' : undefined}
+        tabIndex={isExportOpen ? 0 : undefined}
+        aria-pressed={isExportOpen ? isSelected : undefined}
+        onClick={() => {
+          if (isExportOpen) onToggleSelection(msg.id)
+        }}
+        onKeyDown={(event) => {
+          if (!isExportOpen) return
+          if (event.key !== 'Enter' && event.key !== ' ') return
+          event.preventDefault()
+          onToggleSelection(msg.id)
+        }}
+        className={`cf-message ${
+          msg.role === 'user' ? 'cf-message-user' : 'cf-message-assistant'
+        } ${isExportOpen ? 'cf-message-selectable' : ''} ${
+          isExportOpen && isSelected ? 'cf-message-selected' : ''
+        }`}
+      >
+        <div className="cf-message-topline">
+          <div className="cf-message-meta">
+            {msg.role} · {msg.agent ?? 'unknown'} · {msg.timestamp}
+          </div>
+          <div className="cf-message-actions">
+            <button
+              type="button"
+              className="cf-message-copy-button"
+              title="Copy message"
+              aria-label={`Copy message ${msg.id}`}
+              onClick={async (event) => {
+                event.stopPropagation()
+                try {
+                  await navigator.clipboard.writeText(msg.content)
+                  onSetCopied(msg.id)
+                  window.setTimeout(
+                    () =>
+                      onSetCopied((prev) => (prev === msg.id ? null : prev)),
+                    1400,
+                  )
+                } catch {}
+              }}
+            >
+              {isCopied ? '✓' : '⎘'}
+            </button>
+            <button
+              type="button"
+              className="cf-message-edit-button"
+              onClick={(event) => {
+                event.stopPropagation()
+                onToggleActions(msg.id)
+              }}
+              aria-label={`Open actions for message ${msg.id}`}
+              title="Message actions"
+              aria-expanded={isActionsOpen}
+            >
+              ✎
+            </button>
+            {isActionsOpen && (
+              <div className="cf-message-actions-menu">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onEdit(msg)
+                  }}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onInsertBefore(msg)
+                  }}
+                >
+                  Insert before
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onInsertAfter(msg)
+                  }}
+                >
+                  Insert after
+                </button>
+                <button
+                  type="button"
+                  className="cf-message-actions-danger"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onDelete(msg)
+                  }}
+                  disabled={isDeletingMessage}
+                >
+                  Delete
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <MessageContent
+          content={msg.content}
+          onRunToolCall={handleRunToolCall}
+          runningToolCallKey={runningToolCallKey}
+          toolStreamLog={toolStreamLog}
+        />
+        {chatbotCopyText !== null && (
+          <div className="cf-chatbot-copy-row">
+            <button
+              type="button"
+              className="cf-chatbot-copy-button"
+              onClick={async (event) => {
+                event.stopPropagation()
+                try {
+                  await navigator.clipboard.writeText(chatbotCopyText)
+                  onSetCopied(chatbotCopyId)
+                  window.setTimeout(
+                    () =>
+                      onSetCopied((prev) =>
+                        prev === chatbotCopyId ? null : prev,
+                      ),
+                    1400,
+                  )
+                } catch {}
+              }}
+            >
+              {isChatbotCopied ? '✓ Copied for chatbot' : 'Copy for chatbot'}
+            </button>
+          </div>
+        )}
+        {msg.attachments.length > 0 && (
+          <div className="cf-attachment-list">
+            {msg.attachments.map((attachment) => (
+              <button
+                key={attachment.id}
+                type="button"
+                className="cf-attachment-card"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onPreviewAttachment(attachment)
+                }}
+              >
+                <span className="cf-attachment-icon">
+                  {attachmentKind(attachment) === 'image' ? 'IMG' : 'FILE'}
+                </span>
+                <span className="cf-attachment-details">
+                  <span className="cf-attachment-name">
+                    {attachment.filename}
+                  </span>
+                  <span className="cf-attachment-meta">
+                    {attachment.content_type} · {formatBytes(attachment.size)}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+})
+
+// ── EditorTray ────────────────────────────────────────────────────────────────
 
 interface EditorTrayProps {
   conversationId: string
@@ -750,28 +1019,6 @@ function BootstrapPromptModal({ onClose }: BootstrapPromptModalProps) {
   )
 }
 
-function formatChatbotCopy(command: string, stdout: string, stderr: string, exitCode: number): string {
-  const parts = [`Command:\n\`\`\`bash\n${command}\n\`\`\``]
-  if (exitCode !== 0) parts.push(`Exit code: ${exitCode}`)
-  parts.push(`Result:\n\`\`\`text\n${stdout || '(no stdout)'}\n\`\`\``)
-  if (stderr) parts.push(`Stderr:\n\`\`\`text\n${stderr}\n\`\`\``)
-  return parts.join('\n')
-}
-
-function parseChatbotCopy(content: string): string | null {
-  const cmdMatch = /\nCommand:\n(`{3,})bash\n([\s\S]*?)\n\1/.exec(content)
-  const stdoutMatch = /\nStdout:\n(`{3,})(?:text)?\n([\s\S]*?)\n\2/.exec(content)
-  const stderrMatch = /\nStderr:\n(`{3,})(?:text)?\n([\s\S]*?)\n\2/.exec(content)
-  const exitMatch = /\nExit code: `(\d+)`/.exec(content)
-  if (!cmdMatch || !stdoutMatch) return null
-  const stdout = stdoutMatch[2].trim()
-  const stderr = stderrMatch ? stderrMatch[2].trim() : ''
-  const exitCode = exitMatch ? parseInt(exitMatch[1], 10) : 0
-  const effectiveStdout = stdout === '(no stdout)' ? '' : stdout
-  const effectiveStderr = stderr === '(no stderr)' ? '' : stderr
-  return formatChatbotCopy(cmdMatch[2], effectiveStdout, effectiveStderr, exitCode)
-}
-
 export function ThreadView() {
   const { id } = conversationRoute.useParams()
   const { panel } = conversationRoute.useSearch()
@@ -802,17 +1049,23 @@ export function ThreadView() {
 
   const focusedMessageId = useUIStore((s) => s.focusedMessageId)
   const clearDraft = useUIStore((s) => s.clearDraft)
-  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const parentRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const prevMessageCountRef = useRef(0)
 
-  // Fetch messages for this conversation
   const { data: messages, error, isLoading, isError } = useQuery({
     queryKey: ['conversations', id, 'messages'],
     queryFn: () => fetchMessages(id),
     enabled: !!id,
   })
 
-  // Append a new message
+  const virtualizer = useVirtualizer({
+    count: messages?.length ?? 0,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 200,
+    overscan: 5,
+  })
+
   const { mutate: sendMessage, isPending: isSending } = useMutation({
     mutationFn: (payload: { content: string; attachmentIds: string[] }) =>
       appendMessage(id, {
@@ -886,16 +1139,23 @@ export function ThreadView() {
     },
   })
 
-
-  // Scroll to focused message when graph panel clicks a node (Phase 4)
+  // Scroll to focused message when graph panel clicks a node
   useEffect(() => {
-    if (focusedMessageId && messageRefs.current[focusedMessageId]) {
-      messageRefs.current[focusedMessageId]?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-      })
+    if (!focusedMessageId || !messages) return
+    const index = messages.findIndex((m) => m.id === focusedMessageId)
+    if (index >= 0) {
+      virtualizer.scrollToIndex(index, { behavior: 'smooth', align: 'center' })
     }
-  }, [focusedMessageId])
+  }, [focusedMessageId, messages, virtualizer])
+
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    const count = messages?.length ?? 0
+    if (count > prevMessageCountRef.current && count > 0) {
+      virtualizer.scrollToIndex(count - 1)
+    }
+    prevMessageCountRef.current = count
+  }, [messages?.length, virtualizer])
 
   useEffect(() => {
     if (error instanceof ApiError && error.status === 404) {
@@ -906,7 +1166,6 @@ export function ThreadView() {
 
   useEffect(() => {
     if (!messages) return
-
     const messageIds = new Set(messages.map((message) => message.id))
     setSelectedMessageIds((current) => {
       const next = new Set(
@@ -916,71 +1175,112 @@ export function ThreadView() {
     })
   }, [messages])
 
+  // ── Stable per-row callbacks ────────────────────────────────────────────────
+
+  const toggleMessageSelection = useCallback((messageId: string) => {
+    setSelectedMessageIds((current) => {
+      const next = new Set(current)
+      if (next.has(messageId)) next.delete(messageId)
+      else next.add(messageId)
+      return next
+    })
+  }, [])
+
+  const handleToggleActions = useCallback((messageId: string) => {
+    setOpenActionsMessageId((current) =>
+      current === messageId ? null : messageId,
+    )
+  }, [])
+
+  const startEditingMessage = useCallback((msg: Message) => {
+    setIsExportOpen(false)
+    setOpenActionsMessageId(null)
+    setEditingMessageId(msg.id)
+  }, [])
+
+  const startInsertBefore = useCallback((msg: Message) => {
+    setIsExportOpen(false)
+    setOpenActionsMessageId(null)
+    setInsertTarget({ messageId: msg.id, position: 'before' })
+  }, [])
+
+  const startInsertAfter = useCallback((msg: Message) => {
+    setIsExportOpen(false)
+    setOpenActionsMessageId(null)
+    setInsertTarget({ messageId: msg.id, position: 'after' })
+  }, [])
+
+  const handleDeleteMessage = useCallback(
+    (msg: Message) => {
+      setIsExportOpen(false)
+      setOpenActionsMessageId(null)
+      removeMessage(msg.id)
+    },
+    [removeMessage],
+  )
+
+  const handleRunToolCall = useCallback(
+    async (
+      messageId: string,
+      toolCall: ToolExecutionRequest,
+      toolCallKey: string,
+    ) => {
+      setIsExportOpen(false)
+      setExportStatus(null)
+      setRunningToolCallKey(`${messageId}:${toolCallKey}`)
+      setToolStreamLog('')
+
+      try {
+        let exitEvent: { stdout: string; stderr: string; code: number } | null = null
+        for await (const event of streamToolExecution(id, messageId, toolCall)) {
+          if (event.type === 'stdout' || event.type === 'stderr') {
+            setToolStreamLog((prev) => prev + event.chunk)
+          } else if (event.type === 'exit') {
+            exitEvent = { stdout: event.stdout, stderr: event.stderr, code: event.code }
+          } else if (event.type === 'done') {
+            queryClient.invalidateQueries({ queryKey: ['conversations'] })
+            queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
+          } else if (event.type === 'error') {
+            setExportStatus(event.message)
+          }
+        }
+        if (exitEvent) {
+          setExportStatus(`Command finished (exit ${exitEvent.code}).`)
+          window.setTimeout(() => setExportStatus(null), 3000)
+        }
+      } catch (err) {
+        setExportStatus(
+          err instanceof Error ? err.message : 'Failed to execute tool call.',
+        )
+      } finally {
+        setRunningToolCallKey(null)
+      }
+    },
+    [id, queryClient],
+  )
+
+  const handlePreviewAttachment = useCallback((attachment: Attachment) => {
+    setPreviewAttachment(attachment)
+  }, [])
+
+  // ── Export helpers ──────────────────────────────────────────────────────────
+
   function handleImportSubmit() {
     const content = importContent.trim()
     if (!content || isImporting) return
     submitImport(content)
   }
 
-  function startEditingMessage(message: Message) {
-    setIsExportOpen(false)
-    setOpenActionsMessageId(null)
-    setEditingMessageId(message.id)
-  }
-
   function cancelMessageEdit() {
     setEditingMessageId(null)
-  }
-
-  function startInsertingMessage(message: Message, position: InsertPosition) {
-    setIsExportOpen(false)
-    setOpenActionsMessageId(null)
-    setInsertTarget({ messageId: message.id, position })
   }
 
   function cancelMessageInsert() {
     setInsertTarget(null)
   }
 
-  function handleDeleteMessage(message: Message) {
-    setIsExportOpen(false)
-    setOpenActionsMessageId(null)
-    removeMessage(message.id)
-  }
-
-  async function handleRunToolCall(
-    message: Message,
-    toolCall: ToolExecutionRequest,
-    toolCallKey: string,
-  ) {
-    setIsExportOpen(false)
-    setExportStatus(null)
-    setRunningToolCallKey(`${message.id}:${toolCallKey}`)
-    setToolStreamLog('')
-
-    try {
-      let exitEvent: { stdout: string; stderr: string; code: number } | null = null
-      for await (const event of streamToolExecution(id, message.id, toolCall)) {
-        if (event.type === 'stdout' || event.type === 'stderr') {
-          setToolStreamLog((prev) => prev + event.chunk)
-        } else if (event.type === 'exit') {
-          exitEvent = { stdout: event.stdout, stderr: event.stderr, code: event.code }
-        } else if (event.type === 'done') {
-          queryClient.invalidateQueries({ queryKey: ['conversations'] })
-          queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
-        } else if (event.type === 'error') {
-          setExportStatus(event.message)
-        }
-      }
-      if (exitEvent) {
-        setExportStatus(`Command finished (exit ${exitEvent.code}).`)
-        window.setTimeout(() => setExportStatus(null), 3000)
-      }
-    } catch (err) {
-      setExportStatus(err instanceof Error ? err.message : 'Failed to execute tool call.')
-    } finally {
-      setRunningToolCallKey(null)
-    }
+  function selectedMessages(): Message[] {
+    return (messages ?? []).filter((message) => selectedMessageIds.has(message.id))
   }
 
   async function handleCopyExport() {
@@ -1028,26 +1328,9 @@ export function ThreadView() {
     }
   }
 
-  function selectedMessages(): Message[] {
-    return (messages ?? []).filter((message) => selectedMessageIds.has(message.id))
-  }
-
-  function toggleMessageSelection(messageId: string) {
-    setSelectedMessageIds((current) => {
-      const next = new Set(current)
-      if (next.has(messageId)) {
-        next.delete(messageId)
-      } else {
-        next.add(messageId)
-      }
-      return next
-    })
-  }
-
   async function handleCopySelectedExport() {
     const selected = selectedMessages()
     if (selected.length === 0) return
-
     try {
       await navigator.clipboard.writeText(
         withToolProtocol(messagesToMarkdown(selected), includeToolProtocol),
@@ -1070,7 +1353,6 @@ export function ThreadView() {
   function handleDownloadSelectedExport() {
     const selected = selectedMessages()
     if (selected.length === 0) return
-
     downloadMarkdown(
       includeToolProtocol
         ? `${id}-selected-with-tools.md`
@@ -1267,214 +1549,70 @@ export function ThreadView() {
           </div>
         )}
 
-        {/* Message list */}
-        <div className="cf-thread-scroll">
+        {/* Virtualized message list */}
+        <div ref={parentRef} className="cf-thread-scroll">
           {isLoading && <div className="cf-sidebar-status">Loading...</div>}
           {isError && !(error instanceof ApiError && error.status === 404) && (
             <div className="cf-sidebar-status cf-sidebar-error">
               Failed to load messages.
             </div>
           )}
-          {messages &&
-            messages.map((msg: Message) => (
-              <div
-                key={msg.id}
-                className={`cf-message-row ${
-                  isExportOpen ? 'cf-message-row-selecting' : ''
-                }`}
-              >
-                {isExportOpen && (
-                  <button
-                    type="button"
-                    className={`cf-message-select-dot ${
-                      selectedMessageIds.has(msg.id)
-                        ? 'cf-message-select-dot-active'
-                        : ''
-                    }`}
-                    onClick={() => toggleMessageSelection(msg.id)}
-                    aria-label={
-                      selectedMessageIds.has(msg.id)
-                        ? `Deselect message ${msg.id}`
-                        : `Select message ${msg.id}`
-                    }
-                    aria-pressed={selectedMessageIds.has(msg.id)}
-                  />
-                )}
-                <div
-                  ref={(el) => { messageRefs.current[msg.id] = el }}
-                  role={isExportOpen ? 'button' : undefined}
-                  tabIndex={isExportOpen ? 0 : undefined}
-                  aria-pressed={
-                    isExportOpen ? selectedMessageIds.has(msg.id) : undefined
-                  }
-                  onClick={() => {
-                    if (isExportOpen) toggleMessageSelection(msg.id)
-                  }}
-                  onKeyDown={(event) => {
-                    if (!isExportOpen) return
-                    if (event.key !== 'Enter' && event.key !== ' ') return
-                    event.preventDefault()
-                    toggleMessageSelection(msg.id)
-                  }}
-                  className={`cf-message ${
-                    msg.role === 'user' ? 'cf-message-user' : 'cf-message-assistant'
-                  } ${
-                    isExportOpen ? 'cf-message-selectable' : ''
-                  } ${
-                    isExportOpen && selectedMessageIds.has(msg.id)
-                      ? 'cf-message-selected'
-                      : ''
-                  }`}
-                >
-                  <div className="cf-message-topline">
-                    <div className="cf-message-meta">
-                      {msg.role} · {msg.agent ?? 'unknown'} · {msg.timestamp}
-                    </div>
-                    <div className="cf-message-actions">
-                      <button
-                        type="button"
-                        className="cf-message-copy-button"
-                        title="Copy message"
-                        aria-label={`Copy message ${msg.id}`}
-                        onClick={async (event) => {
-                          event.stopPropagation()
-                          try {
-                            await navigator.clipboard.writeText(msg.content)
-                            setCopiedMessageId(msg.id)
-                            window.setTimeout(() => setCopiedMessageId(null), 1400)
-                          } catch {}
-                        }}
-                      >
-                        {copiedMessageId === msg.id ? '✓' : '⎘'}
-                      </button>
-                      <button
-                        type="button"
-                        className="cf-message-edit-button"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          setOpenActionsMessageId((current) =>
-                            current === msg.id ? null : msg.id,
-                          )
-                        }}
-                        aria-label={`Open actions for message ${msg.id}`}
-                        title="Message actions"
-                        aria-expanded={openActionsMessageId === msg.id}
-                      >
-                        ✎
-                      </button>
-                      {openActionsMessageId === msg.id && (
-                        <div className="cf-message-actions-menu">
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              startEditingMessage(msg)
-                            }}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              startInsertingMessage(msg, 'before')
-                            }}
-                          >
-                            Insert before
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              startInsertingMessage(msg, 'after')
-                            }}
-                          >
-                            Insert after
-                          </button>
-                          <button
-                            type="button"
-                            className="cf-message-actions-danger"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              handleDeleteMessage(msg)
-                            }}
-                            disabled={isDeletingMessage}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      )}
-                    </div>
+          {messages && (
+            <div
+              style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                width: '100%',
+                position: 'relative',
+              }}
+            >
+              {virtualizer.getVirtualItems().map((virtualRow) => {
+                const msg = messages[virtualRow.index]
+                return (
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    <MessageRow
+                      msg={msg}
+                      isExportOpen={isExportOpen}
+                      isSelected={selectedMessageIds.has(msg.id)}
+                      isCopied={copiedMessageId === msg.id}
+                      isChatbotCopied={copiedMessageId === `chatbot:${msg.id}`}
+                      isActionsOpen={openActionsMessageId === msg.id}
+                      isDeletingMessage={isDeletingMessage}
+                      runningToolCallKey={
+                        runningToolCallKey?.startsWith(`${msg.id}:`)
+                          ? runningToolCallKey.slice(msg.id.length + 1)
+                          : null
+                      }
+                      toolStreamLog={
+                        runningToolCallKey?.startsWith(`${msg.id}:`)
+                          ? toolStreamLog
+                          : undefined
+                      }
+                      onSetCopied={setCopiedMessageId}
+                      onToggleSelection={toggleMessageSelection}
+                      onToggleActions={handleToggleActions}
+                      onEdit={startEditingMessage}
+                      onInsertBefore={startInsertBefore}
+                      onInsertAfter={startInsertAfter}
+                      onDelete={handleDeleteMessage}
+                      onRunToolCall={handleRunToolCall}
+                      onPreviewAttachment={handlePreviewAttachment}
+                    />
                   </div>
-                  <MessageContent
-                    content={msg.content}
-                    onRunToolCall={(toolCall, toolCallKey) =>
-                      handleRunToolCall(msg, toolCall, toolCallKey)
-                    }
-                    runningToolCallKey={
-                      runningToolCallKey?.startsWith(`${msg.id}:`)
-                        ? runningToolCallKey.slice(msg.id.length + 1)
-                        : null
-                    }
-                    toolStreamLog={
-                      runningToolCallKey?.startsWith(`${msg.id}:`)
-                        ? toolStreamLog
-                        : undefined
-                    }
-                  />
-                  {msg.role === 'tool' && msg.agent === 'contextforge' && (() => {
-                    const chatbotText = parseChatbotCopy(msg.content)
-                    if (!chatbotText) return null
-                    const copyId = `chatbot:${msg.id}`
-                    return (
-                      <div className="cf-chatbot-copy-row">
-                        <button
-                          type="button"
-                          className="cf-chatbot-copy-button"
-                          onClick={async (event) => {
-                            event.stopPropagation()
-                            try {
-                              await navigator.clipboard.writeText(chatbotText)
-                              setCopiedMessageId(copyId)
-                              window.setTimeout(() => setCopiedMessageId(null), 1400)
-                            } catch {}
-                          }}
-                        >
-                          {copiedMessageId === copyId ? '✓ Copied for chatbot' : 'Copy for chatbot'}
-                        </button>
-                      </div>
-                    )
-                  })()}
-                  {msg.attachments.length > 0 && (
-                    <div className="cf-attachment-list">
-                      {msg.attachments.map((attachment) => (
-                        <button
-                          key={attachment.id}
-                          type="button"
-                          className="cf-attachment-card"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            setPreviewAttachment(attachment)
-                          }}
-                        >
-                          <span className="cf-attachment-icon">
-                            {attachmentKind(attachment) === 'image' ? 'IMG' : 'FILE'}
-                          </span>
-                          <span className="cf-attachment-details">
-                            <span className="cf-attachment-name">
-                              {attachment.filename}
-                            </span>
-                            <span className="cf-attachment-meta">
-                              {attachment.content_type} · {formatBytes(attachment.size)}
-                            </span>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+                )
+              })}
+            </div>
+          )}
         </div>
 
         <EditorTray
