@@ -5,13 +5,24 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 import re
 import subprocess
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    pass
 
 
 class ToolExecutionError(ValueError):
     """Raised when a requested tool call is invalid or blocked."""
+
+
+class CommandTier(str, Enum):
+    SAFE = "safe"       # auto-run without approval
+    CONFIRM = "confirm" # requires approval; Pushbullet notification sent if configured
+    BLOCKED = "blocked" # never run
 
 
 @dataclass(frozen=True)
@@ -26,6 +37,32 @@ class TerminalExecutionResult:
     stderr: str
 
 
+# Commands that modify filesystem, packages, processes, or git history.
+# These require explicit user approval (Pushbullet notification sent).
+CONFIRM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"(^|[;&|`]\s*)rm\s+"), "file deletion requires approval"),
+    (re.compile(r"(^|[;&|`]\s*)rmdir\b"), "directory removal requires approval"),
+    (re.compile(r"(^|[;&|`]\s*)mv\s+"), "file move requires approval"),
+    (re.compile(r"(^|[;&|`]\s*)cp\s+"), "file copy requires approval"),
+    (re.compile(r"(^|[;&|`]\s*)(?:touch|mkdir|ln)\s+"), "file creation requires approval"),
+    (re.compile(r"(^|[;&|`]\s*)(?:chmod|chown)\b"), "permission change requires approval"),
+    (re.compile(r"(?<![>])>(?![>=])"), "output redirection (overwrite) requires approval"),
+    (re.compile(r"(^|[;&|`]\s*)tee\b(?!.*(?:--append|-a)\b)"), "tee without append requires approval"),
+    (re.compile(r"\bgit\s+(?:commit|push|checkout|switch|merge|rebase|cherry-pick|stash\s+pop|branch\s+-[dD]|tag\s+-d)\b"), "git write operation requires approval"),
+    (re.compile(r"\bgit\s+add\b"), "git add requires approval"),
+    (re.compile(r"\b(?:pip|pip3|uv)\s+(?:install|uninstall|upgrade)\b"), "package install requires approval"),
+    (re.compile(r"\b(?:npm|yarn|pnpm)\s+(?:install|uninstall|remove|update|ci)\b"), "package install requires approval"),
+    (re.compile(r"\b(?:apt|apt-get|dnf|yum|brew|nix-env|nix\s+profile)\s+"), "system package operation requires approval"),
+    (re.compile(r"\b(?:kill|pkill|killall)\b"), "process termination requires approval"),
+    (re.compile(r"\bdocker\s+(?:run|stop|start|rm|rmi|kill|exec|compose\s+(?:up|down|rm))\b"), "docker mutation requires approval"),
+    (re.compile(r"\bsystemctl\s+(?:start|stop|restart|enable|disable|daemon-reload|mask|unmask)\b"), "systemctl write operation requires approval"),
+    (re.compile(r"\b(?:curl|wget)\s+.*(?:-o\s+|-O\b|--output\b)"), "download-to-file requires approval"),
+    (re.compile(r"\bssh\b.*(?:[;&|`]|$)"), "SSH commands require approval"),
+    (re.compile(r"\bscp\b"), "scp requires approval"),
+    (re.compile(r"\brsync\b"), "rsync requires approval"),
+    (re.compile(r"\bdd\b"), "dd requires approval"),
+)
+
 DANGEROUS_COMMAND_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"(^|[;&|]\s*)sudo(\s|$)"), "sudo commands must be run manually"),
     (
@@ -39,6 +76,42 @@ DANGEROUS_COMMAND_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bmkfs(?:\.\w+)?\b"), "filesystem formatting is blocked"),
     (re.compile(r"\b(shutdown|reboot|poweroff)\b"), "power commands are blocked"),
 )
+
+
+def classify_command(command: str) -> tuple[CommandTier, str]:
+    """Return the approval tier and reason for a proposed command.
+
+    Tier order: BLOCKED > CONFIRM > SAFE.
+    Blocked commands are never run.
+    Confirm commands require user approval; a Pushbullet notification is sent
+    when a token is configured.
+    Safe commands are auto-run without interaction.
+    """
+    for pattern, message in DANGEROUS_COMMAND_PATTERNS:
+        if pattern.search(command):
+            return CommandTier.BLOCKED, message
+    for pattern, message in CONFIRM_PATTERNS:
+        if pattern.search(command):
+            return CommandTier.CONFIRM, message
+    return CommandTier.SAFE, "read-only command"
+
+
+async def send_pushbullet_notification(
+    token: str,
+    title: str,
+    body: str,
+) -> None:
+    """POST a note push to Pushbullet. Silently ignores errors."""
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            await client.post(
+                "https://api.pushbullet.com/v2/pushes",
+                headers={"Access-Token": token},
+                json={"type": "note", "title": title, "body": body},
+            )
+    except Exception:
+        pass
 
 
 def validate_terminal_exec(*, cwd: str, command: str, reason: str) -> None:

@@ -40,6 +40,9 @@ import { useUIStore } from '@/store/ui'
 import {
   ApiError,
   fetchMessages,
+  fetchSettings,
+  patchSettings,
+  classifyToolCall,
   appendMessage,
   fetchCurrentExportMarkdown,
   importMarkdown,
@@ -132,6 +135,48 @@ function downloadMarkdown(filename: string, markdown: string) {
   link.download = filename
   link.click()
   URL.revokeObjectURL(url)
+}
+
+// Extract the first contextforge-tool call from a message for auto-run.
+// Mirrors the parsing logic in MessageContent without full error-surface UI.
+function extractFirstToolCall(content: string): ToolExecutionRequest | null {
+  const normalized = content.replace(
+    /(^|\n)```\ncontextforge-tool\n/g,
+    '$1```contextforge-tool\n',
+  )
+  const match = /(^|\n)```contextforge-tool[^\n]*\n([\s\S]*?)\n```/.exec(normalized)
+  if (!match) return null
+  try {
+    const raw = match[2].trim()
+    // Sanitize literal newlines/tabs inside JSON strings (same as sanitizeJsonNewlines)
+    let inString = false, escaped = false, sanitized = ''
+    for (const ch of raw) {
+      if (escaped) { sanitized += ch; escaped = false }
+      else if (ch === '\\' && inString) { sanitized += ch; escaped = true }
+      else if (ch === '"') { sanitized += ch; inString = !inString }
+      else if (inString && ch === '\n') sanitized += '\\n'
+      else if (inString && ch === '\r') sanitized += '\\r'
+      else if (inString && ch === '\t') sanitized += '\\t'
+      else sanitized += ch
+    }
+    const obj = JSON.parse(sanitized) as Record<string, unknown>
+    const { tool, cwd, command, reason, timeout_seconds } = obj
+    if (
+      tool !== 'terminal.exec' ||
+      typeof cwd !== 'string' ||
+      typeof command !== 'string' ||
+      typeof reason !== 'string'
+    ) return null
+    return {
+      tool,
+      cwd,
+      command,
+      reason,
+      timeout_seconds: typeof timeout_seconds === 'number' ? timeout_seconds : 300,
+    }
+  } catch {
+    return null
+  }
 }
 
 type BootstrapPreset = 'workspace-router' | 'current-directory' | 'full-orientation'
@@ -249,6 +294,7 @@ interface MessageRowProps {
   isDeletingMessage: boolean
   runningToolCallKey: string | null
   toolStreamLog: string | undefined
+  pendingApprovalMessageId: string | null
   onSetCopied: Dispatch<SetStateAction<string | null>>
   onToggleSelection: (id: string) => void
   onToggleActions: (id: string) => void
@@ -270,6 +316,7 @@ const MessageRow = memo(function MessageRow({
   isDeletingMessage,
   runningToolCallKey,
   toolStreamLog,
+  pendingApprovalMessageId,
   onSetCopied,
   onToggleSelection,
   onToggleActions,
@@ -418,6 +465,8 @@ const MessageRow = memo(function MessageRow({
           onRunToolCall={handleRunToolCall}
           runningToolCallKey={runningToolCallKey}
           toolStreamLog={toolStreamLog}
+          messageId={msg.id}
+          pendingApprovalMessageId={pendingApprovalMessageId}
         />
         {chatbotCopyText !== null && (
           <div className="cf-chatbot-copy-row">
@@ -1046,6 +1095,10 @@ export function ThreadView() {
   const [runningToolCallKey, setRunningToolCallKey] = useState<string | null>(null)
   const [toolStreamLog, setToolStreamLog] = useState('')
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
+  const [autoRunEnabled, setAutoRunEnabled] = useState(false)
+  const [pendingApprovalMessageId, setPendingApprovalMessageId] = useState<string | null>(null)
+  const autoRunEnabledRef = useRef(false)
+  const autoRunFiredRef = useRef<Set<string>>(new Set())
 
   const focusedMessageId = useUIStore((s) => s.focusedMessageId)
   const clearDraft = useUIStore((s) => s.clearDraft)
@@ -1053,15 +1106,34 @@ export function ThreadView() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const prevMessageCountRef = useRef(0)
 
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: fetchSettings,
+  })
+
+  useEffect(() => {
+    if (settings) {
+      setAutoRunEnabled(settings.auto_run)
+      autoRunEnabledRef.current = settings.auto_run
+    }
+  }, [settings])
+
   const { data: messages, error, isLoading, isError } = useQuery({
     queryKey: ['conversations', id, 'messages'],
     queryFn: () => fetchMessages(id),
     enabled: !!id,
-    // Poll while waiting for a ChatGPT response to arrive via the extension.
+    // Poll while the last message is a user message (waiting for ChatGPT)
+    // or the last assistant message has an unexecuted tool call (auto-run in progress).
     refetchInterval: (query) => {
       const msgs = query.state.data
       if (!msgs || msgs.length === 0) return false
-      return msgs[msgs.length - 1].role === 'user' ? 2000 : false
+      const last = msgs[msgs.length - 1]
+      if (last.role === 'user') return 2000
+      if (
+        last.role === 'assistant' &&
+        last.content.includes('```contextforge-tool')
+      ) return 2000
+      return false
     },
   })
 
@@ -1183,6 +1255,48 @@ export function ThreadView() {
     })
   }, [messages])
 
+  // ── Auto-run: detect and execute unreviewed tool calls ─────────────────────
+
+  useEffect(() => {
+    autoRunEnabledRef.current = autoRunEnabled
+  }, [autoRunEnabled])
+
+  useEffect(() => {
+    if (!autoRunEnabled || !messages || messages.length === 0) return
+
+    // Find the last assistant message with a tool call that has no tool result after it.
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]
+      if (msg.role === 'tool') break        // already has a result at this index
+      if (msg.role !== 'assistant') continue
+      if (!msg.content.includes('```contextforge-tool')) break
+
+      const nextMsg = messages[i + 1]
+      if (nextMsg?.role === 'tool') break   // result already exists
+
+      if (autoRunFiredRef.current.has(msg.id)) break // already handled this message
+
+      // Parse the first tool call out of the message content
+      const toolCall = extractFirstToolCall(msg.content)
+      if (!toolCall) break
+
+      autoRunFiredRef.current.add(msg.id)
+
+      void (async () => {
+        try {
+          const result = await classifyToolCall(toolCall)
+          if (result.tier === 'safe') {
+            await handleRunToolCall(msg.id, toolCall, 'tool-0')
+          } else if (result.tier === 'confirm') {
+            setPendingApprovalMessageId(msg.id)
+          }
+          // blocked: do nothing, error already visible in tool card
+        } catch {}
+      })()
+      break
+    }
+  }, [messages, autoRunEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Stable per-row callbacks ────────────────────────────────────────────────
 
   const toggleMessageSelection = useCallback((messageId: string) => {
@@ -1237,6 +1351,7 @@ export function ThreadView() {
       setExportStatus(null)
       setRunningToolCallKey(`${messageId}:${toolCallKey}`)
       setToolStreamLog('')
+      setPendingApprovalMessageId(null)
 
       try {
         let exitEvent: { stdout: string; stderr: string; code: number } | null = null
@@ -1255,6 +1370,29 @@ export function ThreadView() {
         if (exitEvent) {
           setExportStatus(`Command finished (exit ${exitEvent.code}).`)
           window.setTimeout(() => setExportStatus(null), 3000)
+
+          // In auto-run mode: forward the result to ChatGPT by appending a
+          // user message so the bridge picks it up and sends it automatically.
+          if (autoRunEnabledRef.current) {
+            const chatbotResult = formatChatbotCopy(
+              toolCall.command,
+              exitEvent.stdout,
+              exitEvent.stderr,
+              exitEvent.code,
+            )
+            appendMessage(id, {
+              role: 'user',
+              content: chatbotResult,
+              attachment_ids: [],
+            })
+              .then(() => {
+                queryClient.invalidateQueries({ queryKey: ['conversations'] })
+                queryClient.invalidateQueries({
+                  queryKey: ['conversations', id, 'messages'],
+                })
+              })
+              .catch(() => {})
+          }
         }
       } catch (err) {
         setExportStatus(
@@ -1402,6 +1540,19 @@ export function ThreadView() {
         <Panel id="thread" minSize={30} className="cf-thread-panel">
         {/* Graph panel toggle */}
         <div className="cf-thread-toolbar">
+          <button
+            type="button"
+            className={`cf-link-pill cf-toolbar-button ${autoRunEnabled ? 'cf-toolbar-active' : ''}`}
+            onClick={async () => {
+              const next = !autoRunEnabled
+              setAutoRunEnabled(next)
+              autoRunEnabledRef.current = next
+              await patchSettings({ auto_run: next }).catch(() => {})
+            }}
+            title={autoRunEnabled ? 'Auto-run is ON — safe commands run automatically, confirm commands notify via Pushbullet' : 'Auto-run is OFF — all commands require manual approval'}
+          >
+            Auto-run: {autoRunEnabled ? 'On' : 'Off'}
+          </button>
           <button
             type="button"
             className="cf-link-pill cf-toolbar-button"
@@ -1606,6 +1757,7 @@ export function ThreadView() {
                           ? toolStreamLog
                           : undefined
                       }
+                      pendingApprovalMessageId={pendingApprovalMessageId}
                       onSetCopied={setCopiedMessageId}
                       onToggleSelection={toggleMessageSelection}
                       onToggleActions={handleToggleActions}

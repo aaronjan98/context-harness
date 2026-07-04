@@ -313,6 +313,56 @@ export async function fetchCurrentExportMarkdown(
   return text
 }
 
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+export interface CFSettings {
+  auto_run: boolean
+  pushbullet_configured: boolean
+}
+
+export async function fetchSettings(): Promise<CFSettings> {
+  const response = await fetch(resolveApiUrl('/api/settings'))
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) throw toApiError(payload, response)
+  return payload as CFSettings
+}
+
+export async function patchSettings(
+  patch: { auto_run?: boolean; pushbullet_token?: string },
+): Promise<CFSettings> {
+  const response = await fetch(resolveApiUrl('/api/settings'), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) throw toApiError(payload, response)
+  return payload as CFSettings
+}
+
+// ── Tool call classification ───────────────────────────────────────────────────
+
+export type CommandTier = 'safe' | 'confirm' | 'blocked'
+
+export interface ClassifyResult {
+  tier: CommandTier
+  tier_reason: string
+  notification_sent: boolean
+}
+
+export async function classifyToolCall(
+  toolCall: ToolExecutionRequest,
+): Promise<ClassifyResult> {
+  const response = await fetch(resolveApiUrl('/api/tool-executions/classify'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(toolCall),
+  })
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) throw toApiError(payload, response)
+  return payload as ClassifyResult
+}
+
 // ── Create conversation ───────────────────────────────────────────────────────
 
 export async function createConversation(body: CreateConversationRequest) {

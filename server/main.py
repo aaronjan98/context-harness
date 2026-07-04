@@ -14,13 +14,17 @@ from server.latex_suite import (
 )
 from server.store import ConversationStore
 from server.tool_execution import (
+    CommandTier,
     TerminalExecutionResult,
     ToolExecutionError,
+    classify_command,
     execute_terminal_command,
     format_terminal_result_markdown,
+    send_pushbullet_notification,
     stream_terminal_command,
     validate_terminal_exec,
 )
+from server.settings import CFSettings, load_settings, save_settings
 
 
 class CreateConversationRequest(BaseModel):
@@ -277,6 +281,72 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
     async def health() -> dict[str, str]:
         """Simple health check for early scaffolding."""
         return {"status": "ok"}
+
+    # ── Settings ───────────────────────────────────────────────────────────────
+
+    @app.get("/api/settings")
+    async def get_settings() -> dict[str, object]:
+        """Return current CF settings (token omitted from response)."""
+        s = load_settings()
+        return {
+            "auto_run": s.auto_run,
+            "pushbullet_configured": bool(s.pushbullet_token),
+        }
+
+    class PatchSettingsRequest(BaseModel):
+        auto_run: bool | None = None
+        pushbullet_token: str | None = None
+
+    @app.patch("/api/settings")
+    async def patch_settings(payload: PatchSettingsRequest) -> dict[str, object]:
+        """Update one or more CF settings."""
+        s = load_settings()
+        if payload.auto_run is not None:
+            s.auto_run = payload.auto_run
+        if payload.pushbullet_token is not None:
+            s.pushbullet_token = payload.pushbullet_token or None
+        save_settings(s)
+        return {"auto_run": s.auto_run, "pushbullet_configured": bool(s.pushbullet_token)}
+
+    # ── Tool call classification ───────────────────────────────────────────────
+
+    class ClassifyToolCallRequest(BaseModel):
+        tool: str = Field(pattern=r"^terminal\.exec$")
+        cwd: str = Field(min_length=1)
+        command: str = Field(min_length=1)
+        reason: str = Field(min_length=1)
+
+    @app.post("/api/tool-executions/classify")
+    async def classify_tool_call(payload: ClassifyToolCallRequest) -> dict[str, object]:
+        """Classify a proposed command and send a Pushbullet notification if needed.
+
+        Returns tier (safe/confirm/blocked), a human-readable reason, and
+        notification_sent (true when a Pushbullet push was sent).
+        """
+        tier, tier_reason = classify_command(payload.command)
+        notification_sent = False
+
+        if tier == CommandTier.CONFIRM:
+            s = load_settings()
+            if s.pushbullet_token:
+                body = (
+                    f"Command: {payload.command}\n"
+                    f"Working dir: {payload.cwd}\n"
+                    f"Reason: {payload.reason}\n\n"
+                    "Open Context Forge to approve and run."
+                )
+                await send_pushbullet_notification(
+                    s.pushbullet_token,
+                    title="CF: Command requires approval",
+                    body=body,
+                )
+                notification_sent = True
+
+        return {
+            "tier": tier.value,
+            "tier_reason": tier_reason,
+            "notification_sent": notification_sent,
+        }
 
     @app.get(
         "/api/latex-suite/snippets",

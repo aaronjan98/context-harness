@@ -57,6 +57,8 @@ interface MessageContentProps {
   onRunToolCall?: (toolCall: ToolExecutionRequest, toolCallKey: string) => void
   runningToolCallKey?: string | null
   toolStreamLog?: string
+  pendingApprovalMessageId?: string | null
+  messageId?: string
 }
 
 interface ImportedAttachment {
@@ -400,11 +402,13 @@ function ToolCallCard({
   onRun,
   isRunning,
   streamLog,
+  isPendingApproval,
 }: {
   parsed: ParsedToolCall
   onRun?: (toolCall: ToolExecutionRequest, toolCallKey: string) => void
   isRunning: boolean
   streamLog?: string
+  isPendingApproval?: boolean
 }) {
   const [copied, setCopied] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -491,6 +495,11 @@ function ToolCallCard({
           <div className="cf-tool-call-subtitle">
             {activeToolCall?.tool ?? 'invalid tool call'}
           </div>
+          {isPendingApproval && (
+            <div className="cf-tool-call-pending-badge">
+              Awaiting approval — notification sent
+            </div>
+          )}
         </div>
         <div className="cf-tool-call-actions">
           <button
@@ -655,8 +664,13 @@ export function MessageContent({
   onRunToolCall,
   runningToolCallKey,
   toolStreamLog,
+  pendingApprovalMessageId,
+  messageId,
 }: MessageContentProps) {
   const parts = splitToolCallBlocks(content)
+  const isPendingApproval = Boolean(
+    pendingApprovalMessageId && messageId && pendingApprovalMessageId === messageId,
+  )
 
   return (
     <div className="cf-message-content">
@@ -670,6 +684,7 @@ export function MessageContent({
               onRun={onRunToolCall}
               isRunning={isRunning}
               streamLog={isRunning ? toolStreamLog : undefined}
+              isPendingApproval={isPendingApproval}
             />
           )
         }

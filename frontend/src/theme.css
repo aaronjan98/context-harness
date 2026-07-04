@@ -920,6 +920,29 @@ textarea {
   gap: 12px;
 }
 
+.cf-toolbar-active {
+  color: var(--cf-accent);
+  font-weight: 600;
+}
+
+.cf-tool-call-pending-badge {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 6px;
+  padding: 2px 8px;
+  display: inline-block;
+}
+
+:root.dark .cf-tool-call-pending-badge {
+  color: #fcd34d;
+  background: rgba(252, 211, 77, 0.12);
+  border-color: rgba(252, 211, 77, 0.3);
+}
+
 .cf-tool-call-title {
   color: var(--cf-text);
   font-size: 13px;
