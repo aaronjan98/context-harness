@@ -18,20 +18,11 @@ import {
   renameConversation,
 } from '@/api/conversations'
 import type { ConversationSummary } from '@/api/conversations'
-
-type Theme = 'light' | 'dark'
-
-const THEME_STORAGE_KEY = 'context-forge-theme'
-
-function getInitialTheme(): Theme {
-  const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
-  if (savedTheme === 'light' || savedTheme === 'dark') return savedTheme
-
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-}
+import { useSettingsStore } from '@/store/settings'
 
 export function ConversationSidebar() {
-  const [theme, setTheme] = useState<Theme>(getInitialTheme)
+  const theme = useSettingsStore((s) => s.theme)
+  const setTheme = useSettingsStore((s) => s.setTheme)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   const navigate = useNavigate()
@@ -103,7 +94,6 @@ export function ConversationSidebar() {
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
     document.documentElement.style.colorScheme = theme
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme)
   }, [theme])
 
   return (
@@ -114,7 +104,7 @@ export function ConversationSidebar() {
         <div className="cf-sidebar-actions">
           <button
             type="button"
-            onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
             aria-pressed={theme === 'dark'}
             className="cf-theme-toggle"
           >

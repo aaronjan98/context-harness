@@ -363,6 +363,98 @@ textarea {
   color: var(--cf-text);
 }
 
+.cf-settings-toggle-row {
+  display: flex;
+  gap: 8px;
+}
+
+.cf-settings-theme-btn {
+  padding: 6px 18px;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--cf-muted);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+
+.cf-settings-theme-btn:hover {
+  border-color: var(--cf-accent);
+  color: var(--cf-accent);
+}
+
+.cf-settings-theme-btn--active {
+  background: var(--cf-accent);
+  border-color: var(--cf-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.cf-settings-token-area {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cf-settings-token-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cf-settings-token-configured {
+  font-size: 13px;
+  color: #16a34a;
+  font-weight: 500;
+}
+
+:root.dark .cf-settings-token-configured {
+  color: #4ade80;
+}
+
+.cf-settings-token-action {
+  font-size: 12px;
+  padding: 3px 10px;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cf-muted);
+  cursor: pointer;
+}
+
+.cf-settings-token-action:hover {
+  border-color: var(--cf-accent);
+  color: var(--cf-accent);
+}
+
+.cf-settings-token-danger:hover {
+  border-color: var(--cf-danger);
+  color: var(--cf-danger);
+}
+
+.cf-settings-token-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.cf-settings-token-input {
+  flex: 1;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 8px;
+  background: var(--cf-bg);
+  color: var(--cf-text);
+  padding: 7px 10px;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.cf-settings-token-feedback {
+  font-size: 12px;
+  color: var(--cf-muted);
+}
+
 .cf-export-menu {
   position: absolute;
   top: calc(100% + 6px);

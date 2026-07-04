@@ -1548,6 +1548,7 @@ export function ThreadView() {
               setAutoRunEnabled(next)
               autoRunEnabledRef.current = next
               await patchSettings({ auto_run: next }).catch(() => {})
+              queryClient.invalidateQueries({ queryKey: ['settings'] })
             }}
             title={autoRunEnabled ? 'Auto-run is ON — safe commands run automatically, confirm commands notify via Pushbullet' : 'Auto-run is OFF — all commands require manual approval'}
           >
