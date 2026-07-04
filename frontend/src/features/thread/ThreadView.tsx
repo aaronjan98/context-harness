@@ -1057,7 +1057,15 @@ export function ThreadView() {
     queryKey: ['conversations', id, 'messages'],
     queryFn: () => fetchMessages(id),
     enabled: !!id,
+    // Poll while waiting for a ChatGPT response to arrive via the extension.
+    refetchInterval: (query) => {
+      const msgs = query.state.data
+      if (!msgs || msgs.length === 0) return false
+      return msgs[msgs.length - 1].role === 'user' ? 2000 : false
+    },
   })
+
+  const lastMessageIsUser = messages != null && messages.length > 0 && messages[messages.length - 1].role === 'user'
 
   const virtualizer = useVirtualizer({
     count: messages?.length ?? 0,
@@ -1611,6 +1619,12 @@ export function ThreadView() {
                   </div>
                 )
               })}
+            </div>
+          )}
+          {lastMessageIsUser && (
+            <div className="cf-waiting-indicator">
+              <span className="cf-waiting-dots" />
+              Waiting for ChatGPT response
             </div>
           )}
         </div>

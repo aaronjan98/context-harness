@@ -1,10 +1,12 @@
 // ==UserScript==
 // @name         Context Forge Sync — ChatGPT
 // @namespace    https://contextforge.local
-// @version      0.2.0
+// @version      0.4.0
 // @description  Automatically syncs ChatGPT assistant replies into Context Forge
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @connect      localhost
 // ==/UserScript==
 
@@ -274,8 +276,29 @@
   }
 
   // ── State ─────────────────────────────────────────────────────────────────
-  const synced = new Set();  // chatgpt message IDs already sent
-  const timers = new Map();  // messageId → pending setTimeout handle
+  // synced maps messageId → content length at last successful sync.
+  // Using content length as a fingerprint lets us detect when streaming added
+  // more text after a partial capture and re-sync the complete reply.
+  const STORAGE_KEY = `cf_synced_${CONVERSATION_ID}`;
+
+  function loadSynced() {
+    try {
+      const raw = GM_getValue(STORAGE_KEY, '{}');
+      const parsed = JSON.parse(raw);
+      // Migrate old Set format (array of strings) to Map format (object).
+      if (Array.isArray(parsed)) {
+        return new Map(parsed.map(id => [id, Infinity]));
+      }
+      return new Map(Object.entries(parsed));
+    } catch { return new Map(); }
+  }
+
+  function saveSynced() {
+    try { GM_setValue(STORAGE_KEY, JSON.stringify(Object.fromEntries(synced))); } catch {}
+  }
+
+  const synced = loadSynced();  // Map<messageId, contentLength>
+  const timers = new Map();     // messageId → pending setTimeout handle
 
   // ── Sync ──────────────────────────────────────────────────────────────────
   function ingestUrl() {
@@ -284,10 +307,13 @@
 
   function sendToContextForge(el) {
     const id      = el.getAttribute('data-message-id');
+    // ChatGPT's thinking-in-progress placeholder uses this ID prefix and only
+    // contains "Thinking" — skip it entirely.
+    if (id?.startsWith('request-placeholder-')) return;
     const content = extractMarkdown(el);
     if (!content) return;
-
-    synced.add(id);
+    // Skip only if we already sent this exact content length (fingerprint).
+    if (synced.get(id) === content.length) return;
 
     GM_xmlhttpRequest({
       method:  'POST',
@@ -296,15 +322,15 @@
       data:    JSON.stringify({ role: 'assistant', agent: 'chatgpt', content, source_id: id }),
       onload(res) {
         if (res.status >= 200 && res.status < 300) {
-          console.log(`[CF] synced ${id}`);
+          synced.set(id, content.length);
+          saveSynced();
+          console.log(`[CF] synced ${id} (${content.length} chars)`);
         } else {
           console.warn(`[CF] ingest ${res.status} for ${id}:`, res.responseText);
-          synced.delete(id);
         }
       },
       onerror() {
         console.error('[CF] network error — is ContextForge running on port 8000?');
-        synced.delete(id);
       },
     });
   }
@@ -312,7 +338,7 @@
   function scheduleSync(el) {
     if (CONVERSATION_ID === 'REPLACE_ME') return;
     const id = el.getAttribute('data-message-id');
-    if (!id || synced.has(id)) return;
+    if (!id || id.startsWith('request-placeholder-')) return;
 
     if (timers.has(id)) clearTimeout(timers.get(id));
     timers.set(id, setTimeout(() => {

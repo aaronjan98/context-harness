@@ -49,6 +49,7 @@ class MessageRecord:
     attachments: list["AttachmentRecord"]
     content: str
     deleted_at: str | None = None
+    source_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -225,6 +226,7 @@ class ConversationStore:
         content: str,
         message_format: str = "markdown",
         attachment_ids: list[str] | None = None,
+        source_id: str | None = None,
     ) -> MessageRecord:
         """Append one message to the active thread and refresh metadata/export."""
         paths = self.require_existing_conversation(conversation_id)
@@ -243,6 +245,7 @@ class ConversationStore:
             format=message_format,
             attachments=attachments,
             content=content,
+            source_id=source_id,
         )
         self.write_message(paths, record)
 
@@ -577,6 +580,8 @@ class ConversationStore:
         }
         if record.deleted_at is not None:
             frontmatter["deleted_at"] = record.deleted_at
+        if record.source_id is not None:
+            frontmatter["source_id"] = record.source_id
         text = (
             "---\n"
             f"{yaml.safe_dump(frontmatter, sort_keys=False).strip()}\n"
@@ -608,6 +613,9 @@ class ConversationStore:
             content=content,
             deleted_at=self._optional_string(
                 self._to_optional_text(values.get("deleted_at"))
+            ),
+            source_id=self._optional_string(
+                self._to_optional_text(values.get("source_id"))
             ),
         )
 

@@ -1,0 +1,32 @@
+{
+  "manifest_version": 2,
+  "name": "Context Forge Bridge",
+  "version": "0.1.0",
+  "description": "Links Context Forge conversations to ChatGPT — sends your messages and syncs replies automatically.",
+
+  "permissions": [
+    "tabs",
+    "storage",
+    "alarms",
+    "https://chatgpt.com/*",
+    "http://localhost/*"
+  ],
+
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": true
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["content-chatgpt.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_title": "Context Forge Bridge"
+  }
+}

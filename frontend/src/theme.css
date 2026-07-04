@@ -1025,6 +1025,26 @@ textarea {
   to { transform: rotate(360deg); }
 }
 
+.cf-waiting-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 16px;
+  font-size: 13px;
+  color: var(--cf-subtle);
+}
+
+.cf-waiting-dots {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--cf-subtle);
+  border-top-color: var(--cf-text);
+  border-radius: 50%;
+  animation: cf-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
 .cf-tool-stream-output {
   margin: 0;
   max-height: 280px;

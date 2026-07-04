@@ -4,6 +4,7 @@ import json as json_mod
 
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
 from server.docs import get_context_forge_docs_html
@@ -208,6 +209,12 @@ def serialize_attachment(message_id: str, attachment: object) -> AttachmentRespo
 def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
     """Create the FastAPI app with an injectable conversation store."""
     app = FastAPI(title="Context Forge", docs_url=None)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     store = conversation_store or ConversationStore()
 
     def conversation_not_found(conversation_id: str) -> HTTPException:
@@ -459,6 +466,20 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
         except FileNotFoundError as error:
             raise conversation_not_found(conversation_id) from error
 
+        # Source-id dedup: if we've seen this chatbot message ID before, either
+        # return it (same content) or update it (content grew — streaming was
+        # captured mid-way and is now complete).
+        if payload.source_id:
+            for msg in thread:
+                if msg.source_id == payload.source_id:
+                    if msg.content.strip() == payload.content.strip():
+                        return message_response(conversation_id, msg).model_dump()
+                    record = store.update_message_content(
+                        conversation_id, msg.id, payload.content
+                    )
+                    return message_response(conversation_id, record).model_dump()
+
+        # Content dedup fallback for messages without a source_id.
         if thread:
             last = thread[-1]
             if (
@@ -473,6 +494,7 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
                 role=payload.role,
                 agent=payload.agent,
                 content=payload.content,
+                source_id=payload.source_id,
             )
         except FileNotFoundError as error:
             raise conversation_not_found(conversation_id) from error

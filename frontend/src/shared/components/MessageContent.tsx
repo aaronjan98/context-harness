@@ -222,9 +222,39 @@ function splitAttachmentCallouts(content: string) {
   return parts.length > 0 ? parts : [{ type: 'markdown' as const, content }]
 }
 
+function sanitizeJsonNewlines(raw: string): string {
+  // DOM innerText extraction (e.g. via the ChatGPT userscript) can produce
+  // literal newlines/tabs inside JSON string values, which JSON.parse rejects.
+  // Walk character-by-character to replace them with proper escape sequences.
+  let inString = false
+  let escaped = false
+  let result = ''
+  for (const ch of raw) {
+    if (escaped) {
+      result += ch
+      escaped = false
+    } else if (ch === '\\' && inString) {
+      result += ch
+      escaped = true
+    } else if (ch === '"') {
+      result += ch
+      inString = !inString
+    } else if (inString && ch === '\n') {
+      result += '\\n'
+    } else if (inString && ch === '\r') {
+      result += '\\r'
+    } else if (inString && ch === '\t') {
+      result += '\\t'
+    } else {
+      result += ch
+    }
+  }
+  return result
+}
+
 function parseToolCall(raw: string, key: string): ParsedToolCall {
   try {
-    const value: unknown = JSON.parse(raw)
+    const value: unknown = JSON.parse(sanitizeJsonNewlines(raw))
     if (!value || typeof value !== 'object') {
       return { key, raw, error: 'Tool call must be a JSON object.' }
     }
@@ -272,6 +302,13 @@ function parseToolCall(raw: string, key: string): ParsedToolCall {
 }
 
 function splitToolCallBlocks(content: string) {
+  // ChatGPT's DOM extractor sometimes puts the language on the first content line
+  // instead of the opening fence (```\ncontextforge-tool\n…). Normalize to the
+  // standard form (```contextforge-tool\n…) before parsing.
+  const normalized = content.replace(
+    /(^|\n)```\ncontextforge-tool\n/g,
+    '$1```contextforge-tool\n',
+  )
   const pattern = /(^|\n)```contextforge-tool[^\n]*\n([\s\S]*?)\n```/g
   const parts: Array<
     | { type: 'markdown'; content: string }
@@ -281,10 +318,10 @@ function splitToolCallBlocks(content: string) {
   let index = 0
   let match: RegExpExecArray | null
 
-  while ((match = pattern.exec(content)) !== null) {
+  while ((match = pattern.exec(normalized)) !== null) {
     const start = match.index + match[1].length
     if (start > cursor) {
-      parts.push({ type: 'markdown', content: content.slice(cursor, start) })
+      parts.push({ type: 'markdown', content: normalized.slice(cursor, start) })
     }
 
     parts.push({
@@ -295,11 +332,11 @@ function splitToolCallBlocks(content: string) {
     index += 1
   }
 
-  if (cursor < content.length) {
-    parts.push({ type: 'markdown', content: content.slice(cursor) })
+  if (cursor < normalized.length) {
+    parts.push({ type: 'markdown', content: normalized.slice(cursor) })
   }
 
-  return parts.length > 0 ? parts : [{ type: 'markdown' as const, content }]
+  return parts.length > 0 ? parts : [{ type: 'markdown' as const, content: normalized }]
 }
 
 function renderMarkdownPart(content: string, keyPrefix: string) {
@@ -388,6 +425,7 @@ function ToolCallCard({
   const [draftToolCall, setDraftToolCall] = useState<ToolExecutionRequest | null>(
     toolCall ?? null,
   )
+  const [draftRaw, setDraftRaw] = useState(parsed.raw)
   const activeToolCall = draftToolCall ?? toolCall
   const warning = activeToolCall
     ? commandQuoteWarning(activeToolCall.command)
@@ -414,8 +452,31 @@ function ToolCallCard({
     })
   }
 
+  function tryApplyRaw() {
+    try {
+      const obj = JSON.parse(sanitizeJsonNewlines(draftRaw)) as Record<string, unknown>
+      const { tool, cwd, command, reason, timeout_seconds } = obj
+      if (
+        tool === 'terminal.exec' &&
+        typeof cwd === 'string' &&
+        typeof command === 'string' &&
+        typeof reason === 'string'
+      ) {
+        setDraftToolCall({
+          tool,
+          cwd,
+          command,
+          reason,
+          timeout_seconds: typeof timeout_seconds === 'number' ? timeout_seconds : 300,
+        })
+        setIsEditing(false)
+      }
+    } catch {}
+  }
+
   function resetDraft() {
     setDraftToolCall(toolCall ?? null)
+    setDraftRaw(parsed.raw)
     setIsEditing(false)
   }
 
@@ -437,11 +498,15 @@ function ToolCallCard({
             className="cf-secondary-button"
             onClick={(event) => {
               event.stopPropagation()
-              setIsEditing((value) => !value)
+              if (isEditing && !activeToolCall) {
+                tryApplyRaw()
+              } else {
+                setIsEditing((value) => !value)
+              }
             }}
-            disabled={!activeToolCall || isRunning}
+            disabled={isRunning}
           >
-            {isEditing ? 'Preview' : 'Edit'}
+            {isEditing ? (activeToolCall ? 'Preview' : 'Apply') : 'Edit'}
           </button>
           <button
             type="button"
@@ -480,7 +545,20 @@ function ToolCallCard({
           </button>
         </div>
       </div>
-      {parsed.error ? (
+      {isEditing && !activeToolCall ? (
+        <div className="cf-tool-call-edit-grid">
+          <div className="cf-tool-call-error">{parsed.error}</div>
+          <label className="cf-tool-call-edit-field">
+            <span>Raw JSON — fix the error above, then click Apply</span>
+            <textarea
+              value={draftRaw}
+              onChange={(event) => setDraftRaw(event.target.value)}
+              rows={12}
+              spellCheck={false}
+            />
+          </label>
+        </div>
+      ) : parsed.error ? (
         <div className="cf-tool-call-error">{parsed.error}</div>
       ) : isEditing && activeToolCall ? (
         <div className="cf-tool-call-edit-grid">
