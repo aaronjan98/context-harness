@@ -1131,7 +1131,7 @@ export function ThreadView() {
       if (last.role === 'user') return 2000
       if (
         last.role === 'assistant' &&
-        last.content.includes('```contextforge-tool')
+        last.content.includes('contextforge-tool')
       ) return 2000
       return false
     },
@@ -1269,7 +1269,7 @@ export function ThreadView() {
       const msg = messages[i]
       if (msg.role === 'tool') break        // already has a result at this index
       if (msg.role !== 'assistant') continue
-      if (!msg.content.includes('```contextforge-tool')) break
+      if (!msg.content.includes('contextforge-tool')) break
 
       const nextMsg = messages[i + 1]
       if (nextMsg?.role === 'tool') break   // result already exists
@@ -1291,7 +1291,9 @@ export function ThreadView() {
             setPendingApprovalMessageId(msg.id)
           }
           // blocked: do nothing, error already visible in tool card
-        } catch {}
+        } catch (err) {
+          console.error('[CF auto-run] failed for', msg.id, err)
+        }
       })()
       break
     }
