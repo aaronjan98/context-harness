@@ -78,11 +78,14 @@ async function dispatchMessage(cfConvId, link, msg) {
   console.log(`[CF Bridge] dispatching msg ${msg.id} to ChatGPT`);
   const tab = await ensureChatGPTTab(link.chatgptUrl);
 
+  const capturing = isBaseUrl(link.chatgptUrl);
+
   // Try without switching tabs first — works when the ChatGPT tab already has focus.
   const directReply = await sendInject(tab.id, msg.content, cfConvId, msg.id);
   if (directReply?.ok) {
     console.log(`[CF Bridge] injected msg ${msg.id} (no tab switch needed)`);
     waitForChatGPTResponse(cfConvId, tab, msg.id);
+    if (capturing) captureConversationUrl(cfConvId, tab);
     return;
   }
 
@@ -104,6 +107,7 @@ async function dispatchMessage(cfConvId, link, msg) {
   if (!reply?.ok) throw new Error(reply?.error ?? 'Injection failed');
 
   waitForChatGPTResponse(cfConvId, tab, msg.id);
+  if (capturing) captureConversationUrl(cfConvId, tab);
 }
 
 // ChatGPT uses requestAnimationFrame for streaming DOM updates. rAF is
@@ -152,11 +156,39 @@ async function waitForChatGPTResponse(cfConvId, tab, dispatchedMsgId) {
   console.warn(`[CF Bridge] gave up waiting for response to ${dispatchedMsgId} after 3 min`);
 }
 
+function isBaseUrl(url) {
+  try { const p = new URL(url).pathname; return p === '/' || p === ''; } catch { return false; }
+}
+
+async function captureConversationUrl(cfConvId, tab) {
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    await sleep(500);
+    try {
+      const updated = await browser.tabs.get(tab.id);
+      const { pathname } = new URL(updated.url);
+      if (pathname.startsWith('/c/')) {
+        await patchLink(cfConvId, { chatgptUrl: updated.url });
+        console.log(`[CF Bridge] captured conversation URL for ${cfConvId}: ${updated.url}`);
+        return;
+      }
+    } catch (e) {
+      console.warn('[CF Bridge] captureConversationUrl error:', e.message);
+    }
+  }
+  console.warn('[CF Bridge] gave up capturing conversation URL for', cfConvId);
+}
+
 async function ensureChatGPTTab(chatgptUrl) {
-  const convPath = new URL(chatgptUrl).pathname;
+  const parsedUrl = new URL(chatgptUrl);
+  const convPath = parsedUrl.pathname;
+  const baseOnly = isBaseUrl(chatgptUrl);
   const allTabs = await browser.tabs.query({ url: 'https://chatgpt.com/*' });
   const match = allTabs.find(t => {
-    try { return new URL(t.url).pathname === convPath; } catch { return false; }
+    try {
+      const p = new URL(t.url).pathname;
+      return baseOnly ? (p === '/' || p === '') : p === convPath;
+    } catch { return false; }
   });
 
   if (!match) {

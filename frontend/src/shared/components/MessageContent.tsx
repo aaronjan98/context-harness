@@ -224,15 +224,18 @@ function splitAttachmentCallouts(content: string) {
   return parts.length > 0 ? parts : [{ type: 'markdown' as const, content }]
 }
 
+const _JSON_ESCAPE_CHARS = new Set(['"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u'])
+
 function sanitizeJsonNewlines(raw: string): string {
   // DOM innerText extraction (e.g. via the ChatGPT userscript) can produce
   // literal newlines/tabs inside JSON string values, which JSON.parse rejects.
-  // Walk character-by-character to replace them with proper escape sequences.
+  // Also fixes invalid shell escape sequences like \$ → \\$ that JSON disallows.
   let inString = false
   let escaped = false
   let result = ''
   for (const ch of raw) {
     if (escaped) {
+      if (!_JSON_ESCAPE_CHARS.has(ch)) result += '\\' // re-escape \X → \\X
       result += ch
       escaped = false
     } else if (ch === '\\' && inString) {

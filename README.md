@@ -62,27 +62,37 @@ mutating canonical files directly.
 
 ## Current Status
 
-The project is in early implementation.
+Phase 1–5 features are implemented and in active daily use for homelab
+automation and long-running research tasks.
 
 Implemented:
 
-- FastAPI backend foundation
-- file-first conversation store
-- conversation creation and message append flow
-- active-thread reconstruction
-- Markdown export regeneration
-- backend unit and API integration tests
-- React/Vite frontend scaffold with routing, editor abstraction, message view,
-  graph placeholder, and API layer
-- aligned Phase 1 frontend/backend API contract with generated OpenAPI
-  TypeScript types
+- FastAPI backend with file-first conversation store
+- React/Vite frontend: thread view, Vim/CodeMirror editor, KaTeX, graph panel,
+  settings page, attachment support
+- Markdown import/export, conversation surgery (edit, insert, delete, fork)
+- **ChatGPT Bridge** (`tools/contextforge-extension/`) — Firefox extension
+  that links a CF conversation to a ChatGPT tab and drives it autonomously:
+  - injects messages into ChatGPT's input via content script
+  - flushes suspended `requestAnimationFrame` rendering by briefly activating
+    the tab every 3s so replies sync without manual tab visits
+  - auto-captures the conversation URL after the first message creates it
+  - permanent install via NixOS Firefox enterprise policy + AMO-signed `.xpi`
+- **Auto-run tool execution** — tiered command classifier (SAFE / CONFIRM /
+  BLOCKED) with Pushbullet notifications for commands needing approval:
+  - SSH and `docker exec` are transport layers; the remote command determines
+    the safety tier
+  - `>/dev/null`, `2>/dev/null`, `/tmp/` writes, `command -v` checks are safe
+  - parse failures auto-retry with a heredoc suggestion
+  - no-command streak detector: auto-continues up to 2 times then notifies via
+    Pushbullet and waits for the user
+- Settings UI: theme, auto-run toggle, Pushbullet token management
 
 Current focus:
 
-- Verify the browser UI against the real backend runtime.
-- Keep the default conversation store under
-  `~/Documents/context-harness/conversations`.
-- Add basic Markdown import.
+- Driving multi-step homelab tasks (Lidarr, Navidrome, qBittorrent) fully
+  autonomously through the ChatGPT bridge
+- Hardening the command classifier edge cases
 
 ## Phase Roadmap
 

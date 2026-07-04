@@ -363,6 +363,14 @@ export async function classifyToolCall(
   return payload as ClassifyResult
 }
 
+export async function sendNotification(title: string, body: string): Promise<void> {
+  await fetch(resolveApiUrl('/api/notify'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, body }),
+  }).catch(() => {})
+}
+
 // ── Create conversation ───────────────────────────────────────────────────────
 
 export async function createConversation(body: CreateConversationRequest) {

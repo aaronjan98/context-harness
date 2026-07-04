@@ -4,6 +4,13 @@
   "version": "0.1.0",
   "description": "Links Context Forge conversations to ChatGPT — sends your messages and syncs replies automatically.",
 
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "contextforge-bridge@local",
+      "strict_min_version": "109.0"
+    }
+  },
+
   "permissions": [
     "tabs",
     "storage",

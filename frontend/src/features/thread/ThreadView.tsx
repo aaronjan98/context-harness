@@ -52,6 +52,7 @@ import {
   streamToolExecution,
   updateMessage,
   uploadAttachment,
+  sendNotification,
 } from '@/api/conversations'
 import type { Attachment, Message, ToolExecutionRequest } from '@/api/conversations'
 
@@ -118,7 +119,20 @@ Rules:
 - Keep commands minimal and focused.
 - Do not put secrets in commands.
 - Do not request destructive commands unless explicitly necessary.
-- Wait for Context Forge to execute approved commands and return the result.`
+- Wait for Context Forge to execute approved commands and return the result.
+- If you have a clear next step, include the tool call in the same response — do not send a status-only message and wait. Only omit a tool call when you genuinely need user input or the task is complete.
+- When waiting on a long operation (download, import, indexing), do not pause. Instead: (1) work on all other pending tasks first, then (2) issue a single polling command that loops with sleep until the operation finishes (use \`timeout_seconds: 3600\` for long waits).
+- For long-running operations (download polls, retries, wait loops), set \`"timeout_seconds": 3600\` in the tool call JSON. The default is 300s.
+- For complex or multi-line scripts, avoid deeply nested quoting (JSON → shell → python -c → Python strings). Instead, write the script to a temp file with a heredoc then execute it:
+
+\`\`\`contextforge-tool
+{
+  "tool": "terminal.exec",
+  "cwd": "/home/aj",
+  "command": "cat > /tmp/cf_script.py << 'PYEOF'\nimport json\n# your script here\nPYEOF\npython3 /tmp/cf_script.py",
+  "reason": "why"
+}
+\`\`\``
 
 function withToolProtocol(markdown: string, enabled: boolean): string {
   if (!enabled) return markdown
@@ -148,10 +162,15 @@ function extractFirstToolCall(content: string): ToolExecutionRequest | null {
   if (!match) return null
   try {
     const raw = match[2].trim()
-    // Sanitize literal newlines/tabs inside JSON strings (same as sanitizeJsonNewlines)
+    // Sanitize literal newlines/tabs inside JSON strings, and fix invalid
+    // escape sequences like \$ that shells use but JSON does not allow.
+    const JSON_ESCAPE_CHARS = new Set(['"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u'])
     let inString = false, escaped = false, sanitized = ''
     for (const ch of raw) {
-      if (escaped) { sanitized += ch; escaped = false }
+      if (escaped) {
+        if (!JSON_ESCAPE_CHARS.has(ch)) sanitized += '\\' // re-escape invalid \X → \\X
+        sanitized += ch; escaped = false
+      }
       else if (ch === '\\' && inString) { sanitized += ch; escaped = true }
       else if (ch === '"') { sanitized += ch; inString = !inString }
       else if (inString && ch === '\n') sanitized += '\\n'
@@ -1099,6 +1118,9 @@ export function ThreadView() {
   const [pendingApprovalMessageId, setPendingApprovalMessageId] = useState<string | null>(null)
   const autoRunEnabledRef = useRef(false)
   const autoRunFiredRef = useRef<Set<string>>(new Set())
+  // Counts consecutive assistant messages with no tool call while auto-run is on.
+  // Resets when a tool call executes. At the limit, notifies via Pushbullet instead of continuing.
+  const noCommandStreakRef = useRef(0)
 
   const focusedMessageId = useUIStore((s) => s.focusedMessageId)
   const clearDraft = useUIStore((s) => s.clearDraft)
@@ -1138,6 +1160,13 @@ export function ThreadView() {
   })
 
   const lastMessageIsUser = messages != null && messages.length > 0 && messages[messages.length - 1].role === 'user'
+
+  const lastMsg = messages != null && messages.length > 0 ? messages[messages.length - 1] : null
+  const showContinue =
+    lastMsg?.role === 'assistant' &&
+    !lastMsg.content.includes('contextforge-tool') &&
+    !runningToolCallKey &&
+    !pendingApprovalMessageId
 
   const virtualizer = useVirtualizer({
     count: messages?.length ?? 0,
@@ -1237,6 +1266,13 @@ export function ThreadView() {
     prevMessageCountRef.current = count
   }, [messages?.length, virtualizer])
 
+  // Scroll to bottom as tool execution log grows (virtualizer item height increases)
+  useEffect(() => {
+    if (!toolStreamLog) return
+    const count = messages?.length ?? 0
+    if (count > 0) virtualizer.scrollToIndex(count - 1)
+  }, [toolStreamLog, messages?.length, virtualizer])
+
   useEffect(() => {
     if (error instanceof ApiError && error.status === 404) {
       queryClient.invalidateQueries({ queryKey: ['conversations'] })
@@ -1264,6 +1300,41 @@ export function ThreadView() {
   useEffect(() => {
     if (!autoRunEnabled || !messages || messages.length === 0) return
 
+    const lastMsg = messages[messages.length - 1]
+
+    // Handle assistant messages with no tool call (status updates, waiting messages).
+    // Auto-continue up to 2 times; on the 3rd, send a Pushbullet notification instead.
+    if (
+      lastMsg.role === 'assistant' &&
+      !lastMsg.content.includes('contextforge-tool') &&
+      !autoRunFiredRef.current.has(lastMsg.id)
+    ) {
+      autoRunFiredRef.current.add(lastMsg.id)
+      const streak = ++noCommandStreakRef.current
+      const MAX_AUTO_CONTINUES = 2
+
+      if (streak <= MAX_AUTO_CONTINUES) {
+        appendMessage(id, {
+          role: 'user',
+          content: 'Please continue working toward the goal. If you are waiting on a long operation, issue a polling command to check its status and/or work on other pending tasks in parallel.',
+          attachment_ids: [],
+        })
+          .then(() => {
+            queryClient.invalidateQueries({ queryKey: ['conversations'] })
+            queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
+          })
+          .catch(() => {})
+      } else {
+        // Streak exceeded — notify the user and stop auto-continuing
+        noCommandStreakRef.current = 0
+        sendNotification(
+          'CF: needs your attention',
+          lastMsg.content.slice(0, 300),
+        ).catch(() => {})
+      }
+      return
+    }
+
     // Find the last assistant message with a tool call that has no tool result after it.
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i]
@@ -1278,7 +1349,21 @@ export function ThreadView() {
 
       // Parse the first tool call out of the message content
       const toolCall = extractFirstToolCall(msg.content)
-      if (!toolCall) break
+      if (!toolCall) {
+        // Content has contextforge-tool marker but JSON didn't parse — ask ChatGPT to retry
+        autoRunFiredRef.current.add(msg.id)
+        appendMessage(id, {
+          role: 'user',
+          content: 'The tool call in your last message failed to parse (invalid JSON or escape sequences). Please re-issue it using a heredoc for the script body to avoid nested quoting.',
+          attachment_ids: [],
+        })
+          .then(() => {
+            queryClient.invalidateQueries({ queryKey: ['conversations'] })
+            queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
+          })
+          .catch(() => {})
+        break
+      }
 
       autoRunFiredRef.current.add(msg.id)
 
@@ -1354,6 +1439,7 @@ export function ThreadView() {
       setRunningToolCallKey(`${messageId}:${toolCallKey}`)
       setToolStreamLog('')
       setPendingApprovalMessageId(null)
+      noCommandStreakRef.current = 0
 
       try {
         let exitEvent: { stdout: string; stderr: string; code: number } | null = null
@@ -1542,6 +1628,16 @@ export function ThreadView() {
         <Panel id="thread" minSize={30} className="cf-thread-panel">
         {/* Graph panel toggle */}
         <div className="cf-thread-toolbar">
+          {showContinue && (
+            <button
+              type="button"
+              className="cf-link-pill cf-toolbar-button cf-toolbar-active"
+              title="Send a continuation prompt to keep the autonomous loop going"
+              onClick={() => sendMessage({ content: 'Please proceed with the next step.', attachmentIds: [] })}
+            >
+              Continue ▶
+            </button>
+          )}
           <button
             type="button"
             className={`cf-link-pill cf-toolbar-button ${autoRunEnabled ? 'cf-toolbar-active' : ''}`}

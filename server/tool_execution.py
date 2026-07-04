@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 import re
+import shlex
 import subprocess
 from typing import TYPE_CHECKING
 
@@ -46,18 +47,17 @@ CONFIRM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"(^|[;&|`]\s*)cp\s+"), "file copy requires approval"),
     (re.compile(r"(^|[;&|`]\s*)(?:touch|mkdir|ln)\s+"), "file creation requires approval"),
     (re.compile(r"(^|[;&|`]\s*)(?:chmod|chown)\b"), "permission change requires approval"),
-    (re.compile(r"(?<![>])>(?![>=])"), "output redirection (overwrite) requires approval"),
+    (re.compile(r"(?<!\S)>(?![>=])(?!\s*(?:/tmp/|/dev/null\b))"), "output redirection (overwrite) requires approval"),
     (re.compile(r"(^|[;&|`]\s*)tee\b(?!.*(?:--append|-a)\b)"), "tee without append requires approval"),
     (re.compile(r"\bgit\s+(?:commit|push|checkout|switch|merge|rebase|cherry-pick|stash\s+pop|branch\s+-[dD]|tag\s+-d)\b"), "git write operation requires approval"),
     (re.compile(r"\bgit\s+add\b"), "git add requires approval"),
     (re.compile(r"\b(?:pip|pip3|uv)\s+(?:install|uninstall|upgrade)\b"), "package install requires approval"),
     (re.compile(r"\b(?:npm|yarn|pnpm)\s+(?:install|uninstall|remove|update|ci)\b"), "package install requires approval"),
-    (re.compile(r"\b(?:apt|apt-get|dnf|yum|brew|nix-env|nix\s+profile)\s+"), "system package operation requires approval"),
+    (re.compile(r"(^|[;&|`]\s*)(?:apt|apt-get|dnf|yum|brew|nix-env|nix\s+profile)\s+"), "system package operation requires approval"),
     (re.compile(r"\b(?:kill|pkill|killall)\b"), "process termination requires approval"),
-    (re.compile(r"\bdocker\s+(?:run|stop|start|rm|rmi|kill|exec|compose\s+(?:up|down|rm))\b"), "docker mutation requires approval"),
+    (re.compile(r"\bdocker\s+(?:run|stop|start|rm|rmi|kill|compose\s+(?:up|down|rm))\b"), "docker mutation requires approval"),
     (re.compile(r"\bsystemctl\s+(?:start|stop|restart|enable|disable|daemon-reload|mask|unmask)\b"), "systemctl write operation requires approval"),
     (re.compile(r"\b(?:curl|wget)\s+.*(?:-o\s+|-O\b|--output\b)"), "download-to-file requires approval"),
-    (re.compile(r"\bssh\b.*(?:[;&|`]|$)"), "SSH commands require approval"),
     (re.compile(r"\bscp\b"), "scp requires approval"),
     (re.compile(r"\brsync\b"), "rsync requires approval"),
     (re.compile(r"\bdd\b"), "dd requires approval"),
@@ -78,6 +78,56 @@ DANGEROUS_COMMAND_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
+# SSH flags that consume the next token as their argument (single-char flags only)
+_SSH_ARG_FLAGS = frozenset("bcDEeFIiJLlmopQRSWw")
+_SSH_RE = re.compile(r"(^|[;&|`]\s*)ssh\b")
+
+
+def _parse_ssh_remote(command: str) -> str | None:
+    """Extract the remote command from a `ssh [flags] host cmd` invocation."""
+    try:
+        tokens = shlex.split(command)
+        if not tokens or tokens[0] != "ssh":
+            return None
+        i = 1
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok == "--":
+                i += 1
+                break
+            if tok.startswith("-") and len(tok) > 1:
+                if tok[1] in _SSH_ARG_FLAGS and len(tok) == 2:
+                    i += 2
+                else:
+                    i += 1
+            else:
+                i += 1  # skip hostname
+                break
+        if i >= len(tokens):
+            return None
+        remote = tokens[i:]
+        return remote[0] if len(remote) == 1 else " ".join(remote)
+    except ValueError:
+        pass
+
+    # Fallback for complex shell quoting shlex can't tokenise: strip
+    # 'ssh [flags] host' from the raw string and return the rest.
+    rest = re.sub(r"^ssh\s+", "", command.strip())
+    while rest.startswith("-"):
+        m = re.match(r"(-\S+)\s*", rest)
+        if not m:
+            break
+        flag, rest = m.group(1), rest[m.end():]
+        if len(flag) == 2 and flag[1] in _SSH_ARG_FLAGS:
+            m2 = re.match(r"\S+\s*", rest)
+            if m2:
+                rest = rest[m2.end():]
+    m = re.match(r"\S+\s*(.*)", rest, re.DOTALL)
+    if not m or not m.group(1).strip():
+        return None
+    return m.group(1).strip()
+
+
 def classify_command(command: str) -> tuple[CommandTier, str]:
     """Return the approval tier and reason for a proposed command.
 
@@ -90,6 +140,18 @@ def classify_command(command: str) -> tuple[CommandTier, str]:
     for pattern, message in DANGEROUS_COMMAND_PATTERNS:
         if pattern.search(command):
             return CommandTier.BLOCKED, message
+
+    # SSH is a transport layer — classify by what it actually runs remotely.
+    # Compound commands containing ssh (e.g. `ls && ssh host "rm ..."`) fall
+    # through to CONFIRM since we can't reliably extract the remote command.
+    if _SSH_RE.search(command):
+        if command.strip().startswith("ssh"):
+            remote = _parse_ssh_remote(command.strip())
+            if remote:
+                tier, reason = classify_command(remote)
+                return tier, f"(via ssh) {reason}"
+        return CommandTier.CONFIRM, "SSH command requires approval"
+
     for pattern, message in CONFIRM_PATTERNS:
         if pattern.search(command):
             return CommandTier.CONFIRM, message

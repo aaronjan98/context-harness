@@ -348,6 +348,19 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
             "notification_sent": notification_sent,
         }
 
+    @app.post("/api/notify")
+    async def push_notification(payload: dict[str, str]) -> dict[str, object]:
+        """Send an arbitrary Pushbullet notification if a token is configured."""
+        s = load_settings()
+        if not s.pushbullet_token:
+            return {"sent": False, "reason": "no token configured"}
+        await send_pushbullet_notification(
+            s.pushbullet_token,
+            title=payload.get("title", "Context Forge"),
+            body=payload.get("body", ""),
+        )
+        return {"sent": True}
+
     @app.get(
         "/api/latex-suite/snippets",
         response_model=LatexSuiteSnippetsResponse,
