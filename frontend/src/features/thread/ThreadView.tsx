@@ -41,7 +41,8 @@ import {
   ApiError,
   fetchMessages,
   fetchSettings,
-  patchSettings,
+  fetchConversation,
+  patchConversationAutoRun,
   classifyToolCall,
   appendMessage,
   fetchCurrentExportMarkdown,
@@ -120,7 +121,15 @@ Rules:
 - Do not put secrets in commands.
 - Do not request destructive commands unless explicitly necessary.
 - Wait for Context Forge to execute approved commands and return the result.
-- If you have a clear next step, include the tool call in the same response — do not send a status-only message and wait. Only omit a tool call when you genuinely need user input or the task is complete.
+- If you have a clear next step, include the tool call in the same response — do not send a status-only message and wait. Only omit a tool call when you genuinely need user input or the task is fully complete.
+- When the goal is fully accomplished, signal completion with a \`terminal.done\` tool call instead of a plain text summary:
+
+\`\`\`contextforge-tool
+{
+  "tool": "terminal.done",
+  "summary": "one-sentence description of what was accomplished"
+}
+\`\`\`
 - When waiting on a long operation (download, import, indexing), do not pause. Instead: (1) work on all other pending tasks first, then (2) issue a single polling command that loops with sleep until the operation finishes (use \`timeout_seconds: 3600\` for long waits).
 - For long-running operations (download polls, retries, wait loops), set \`"timeout_seconds": 3600\` in the tool call JSON. The default is 300s.
 - For complex or multi-line scripts, avoid deeply nested quoting (JSON → shell → python -c → Python strings). Instead, write the script to a temp file with a heredoc then execute it:
@@ -196,6 +205,31 @@ function extractFirstToolCall(content: string): ToolExecutionRequest | null {
   } catch {
     return null
   }
+}
+
+function extractDoneSignal(content: string): { summary: string } | null {
+  const normalized = content.replace(
+    /(^|\n)```\ncontextforge-tool\n/g,
+    '$1```contextforge-tool\n',
+  )
+  const match = /(^|\n)```contextforge-tool[^\n]*\n([\s\S]*?)\n```/.exec(normalized)
+  if (match) {
+    try {
+      const obj = JSON.parse(match[2].trim()) as Record<string, unknown>
+      if (obj.tool !== 'terminal.done') return null
+      return { summary: typeof obj.summary === 'string' ? obj.summary : '' }
+    } catch {
+      return null
+    }
+  }
+  // Fallback: catch bare "terminal.done" or very short completion-only messages
+  // from models that have lost context and can't produce the fenced block format.
+  const trimmed = content.trim()
+  if (/^terminal\.done\b/i.test(trimmed)) return { summary: trimmed }
+  if (trimmed.length <= 60 && /\bdone\b|\bcomplete\b|\bfinished\b/i.test(trimmed) && !trimmed.includes('`')) {
+    return { summary: trimmed }
+  }
+  return null
 }
 
 type BootstrapPreset = 'workspace-router' | 'current-directory' | 'full-orientation'
@@ -276,10 +310,22 @@ Rules:
 - Wait for Context Forge to return command results before continuing.${taskBlock}`.trim()
 }
 
+const CHATBOT_STDOUT_LIMIT = 10_000
+const CHATBOT_HEAD = 3_000
+const CHATBOT_TAIL = 1_000
+
 function formatChatbotCopy(command: string, stdout: string, stderr: string, exitCode: number): string {
+  let displayStdout = stdout || '(no stdout)'
+  if (displayStdout.length > CHATBOT_STDOUT_LIMIT) {
+    const omitted = displayStdout.length - (CHATBOT_HEAD + CHATBOT_TAIL)
+    displayStdout =
+      `${displayStdout.slice(0, CHATBOT_HEAD)}\n\n` +
+      `[... ${omitted.toLocaleString()} characters omitted — see the CF tool result message for the full log path ...]\n\n` +
+      `${displayStdout.slice(-CHATBOT_TAIL)}`
+  }
   const parts = [`Command:\n\`\`\`bash\n${command}\n\`\`\``]
   if (exitCode !== 0) parts.push(`Exit code: ${exitCode}`)
-  parts.push(`Result:\n\`\`\`text\n${stdout || '(no stdout)'}\n\`\`\``)
+  parts.push(`Result:\n\`\`\`text\n${displayStdout}\n\`\`\``)
   if (stderr) parts.push(`Stderr:\n\`\`\`text\n${stderr}\n\`\`\``)
   return parts.join('\n')
 }
@@ -1118,6 +1164,10 @@ export function ThreadView() {
   const [pendingApprovalMessageId, setPendingApprovalMessageId] = useState<string | null>(null)
   const autoRunEnabledRef = useRef(false)
   const autoRunFiredRef = useRef<Set<string>>(new Set())
+  // Tracks message IDs whose auto-run appendMessage is in-flight. Prevents duplicate
+  // concurrent fires while allowing retry on HTTP failure (unlike autoRunFiredRef, which
+  // is permanent and never cleared).
+  const pendingAutoRunRef = useRef<Set<string>>(new Set())
   // Counts consecutive assistant messages with no tool call while auto-run is on.
   // Resets when a tool call executes. At the limit, notifies via Pushbullet instead of continuing.
   const noCommandStreakRef = useRef(0)
@@ -1128,29 +1178,37 @@ export function ThreadView() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const prevMessageCountRef = useRef(0)
 
-  const { data: settings } = useQuery({
+  useQuery({
     queryKey: ['settings'],
     queryFn: fetchSettings,
   })
 
+  // Auto-run is per-conversation. Read directly from the conversation metadata
+  // so it loads correctly on mount and when switching between conversations.
+  const { data: conversationMeta } = useQuery({
+    queryKey: ['conversations', id],
+    queryFn: () => fetchConversation(id),
+    enabled: !!id,
+  })
+
   useEffect(() => {
-    if (settings) {
-      setAutoRunEnabled(settings.auto_run)
-      autoRunEnabledRef.current = settings.auto_run
-    }
-  }, [settings])
+    if (!conversationMeta) return
+    const val = conversationMeta.auto_run ?? false
+    setAutoRunEnabled(val)
+    autoRunEnabledRef.current = val
+  }, [conversationMeta])
 
   const { data: messages, error, isLoading, isError } = useQuery({
     queryKey: ['conversations', id, 'messages'],
     queryFn: () => fetchMessages(id),
     enabled: !!id,
-    // Poll while the last message is a user message (waiting for ChatGPT)
-    // or the last assistant message has an unexecuted tool call (auto-run in progress).
+    // Poll while auto-run is on and the last message is a user message (waiting for ChatGPT)
+    // or when there is an unexecuted tool call that auto-run will handle.
     refetchInterval: (query) => {
       const msgs = query.state.data
       if (!msgs || msgs.length === 0) return false
       const last = msgs[msgs.length - 1]
-      if (last.role === 'user') return 2000
+      if (last.role === 'user' && autoRunEnabled) return 2000
       if (
         last.role === 'assistant' &&
         last.content.includes('contextforge-tool')
@@ -1160,13 +1218,6 @@ export function ThreadView() {
   })
 
   const lastMessageIsUser = messages != null && messages.length > 0 && messages[messages.length - 1].role === 'user'
-
-  const lastMsg = messages != null && messages.length > 0 ? messages[messages.length - 1] : null
-  const showContinue =
-    lastMsg?.role === 'assistant' &&
-    !lastMsg.content.includes('contextforge-tool') &&
-    !runningToolCallKey &&
-    !pendingApprovalMessageId
 
   const virtualizer = useVirtualizer({
     count: messages?.length ?? 0,
@@ -1302,30 +1353,95 @@ export function ThreadView() {
 
     const lastMsg = messages[messages.length - 1]
 
+    // If the last message is a tool result with no subsequent user message, the chatbot
+    // copy was never sent (auto-run was off when the tool completed). Append it now so
+    // the bridge can dispatch it to ChatGPT.
+    if (
+      lastMsg.role === 'tool' &&
+      !autoRunFiredRef.current.has(lastMsg.id) &&
+      !pendingAutoRunRef.current.has(lastMsg.id)
+    ) {
+      const cmdMatch = /\nCommand:\n(`{3,})bash\n([\s\S]*?)\n\1/.exec(lastMsg.content)
+      const exitMatch = /\nExit code: `(-?\d+)`/.exec(lastMsg.content)
+      if (cmdMatch && exitMatch) {
+        const command = cmdMatch[2]
+        const exitCode = parseInt(exitMatch[1], 10)
+        const stdoutMatch = /\nStdout:[^\n]*\n(`{3,})text\n([\s\S]*?)\n\1/.exec(lastMsg.content)
+        const stderrMatch = /\nStderr:\n(`{3,})text\n([\s\S]*?)\n\1/.exec(lastMsg.content)
+        const stdout = stdoutMatch ? stdoutMatch[2] : ''
+        const stderr = stderrMatch ? stderrMatch[2].replace(/^\(no stderr\)$/, '') : ''
+        const chatbotCopy = formatChatbotCopy(command, stdout, stderr, exitCode)
+        pendingAutoRunRef.current.add(lastMsg.id)
+        appendMessage(id, { role: 'user', content: chatbotCopy, attachment_ids: [] })
+          .then(() => {
+            autoRunFiredRef.current.add(lastMsg.id)
+            pendingAutoRunRef.current.delete(lastMsg.id)
+            queryClient.invalidateQueries({ queryKey: ['conversations'] })
+            queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
+          })
+          .catch(() => { pendingAutoRunRef.current.delete(lastMsg.id) })
+      }
+      return
+    }
+
+    // Handle terminal.done completion signal — stop the loop and notify.
+    // Check regardless of whether 'contextforge-tool' appears in the content so that
+    // bare "terminal.done" or short "Done." responses from context-exhausted models
+    // are also caught here before the no-tool-call streak path fires.
+    if (
+      lastMsg.role === 'assistant' &&
+      !autoRunFiredRef.current.has(lastMsg.id)
+    ) {
+      const done = extractDoneSignal(lastMsg.content)
+      if (done !== null) {
+        autoRunFiredRef.current.add(lastMsg.id)
+        noCommandStreakRef.current = 0
+        sendNotification(
+          'CF: goal complete',
+          done.summary || 'Task finished.',
+        ).catch(() => {})
+        return
+      }
+    }
+
     // Handle assistant messages with no tool call (status updates, waiting messages).
     // Auto-continue up to 2 times; on the 3rd, send a Pushbullet notification instead.
     if (
       lastMsg.role === 'assistant' &&
       !lastMsg.content.includes('contextforge-tool') &&
-      !autoRunFiredRef.current.has(lastMsg.id)
+      !autoRunFiredRef.current.has(lastMsg.id) &&
+      !pendingAutoRunRef.current.has(lastMsg.id)
     ) {
-      autoRunFiredRef.current.add(lastMsg.id)
-      const streak = ++noCommandStreakRef.current
+      const streak = noCommandStreakRef.current + 1
       const MAX_AUTO_CONTINUES = 2
 
+      const wrongFence = /```(?:bash|sh|shell|zsh|Bash|Shell)[^\n]*\n/.test(lastMsg.content)
+      const unfencedCommand = /(?:^|\n)(?:ssh |cat >|bash |python3 |docker |curl |<<['"])/.test(lastMsg.content)
+      const wrongFformat = wrongFence || unfencedCommand
+      const continueContent = wrongFformat
+        ? 'Your last message contained a ```bash (or similar) code block instead of a contextforge-tool block. Context Forge cannot execute it. Please re-issue the command using the contextforge-tool format:\n\n```contextforge-tool\n{"tool":"terminal.exec","cwd":"/absolute/path","command":"...","reason":"..."}\n```'
+        : 'Please continue working toward the goal. If you are waiting on a long operation, issue a polling command to check its status and/or work on other pending tasks in parallel. If the goal is fully complete, signal it with a terminal.done tool call — do not summarize in plain text:\n\n```contextforge-tool\n{"tool":"terminal.done","summary":"one-sentence description of what was accomplished"}\n```'
+
       if (streak <= MAX_AUTO_CONTINUES) {
+        pendingAutoRunRef.current.add(lastMsg.id)
         appendMessage(id, {
           role: 'user',
-          content: 'Please continue working toward the goal. If you are waiting on a long operation, issue a polling command to check its status and/or work on other pending tasks in parallel.',
+          content: continueContent,
           attachment_ids: [],
         })
           .then(() => {
+            autoRunFiredRef.current.add(lastMsg.id)
+            pendingAutoRunRef.current.delete(lastMsg.id)
+            noCommandStreakRef.current = streak
             queryClient.invalidateQueries({ queryKey: ['conversations'] })
             queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
           })
-          .catch(() => {})
+          .catch(() => {
+            pendingAutoRunRef.current.delete(lastMsg.id)
+          })
       } else {
         // Streak exceeded — notify the user and stop auto-continuing
+        autoRunFiredRef.current.add(lastMsg.id)
         noCommandStreakRef.current = 0
         sendNotification(
           'CF: needs your attention',
@@ -1346,37 +1462,63 @@ export function ThreadView() {
       if (nextMsg?.role === 'tool') break   // result already exists
 
       if (autoRunFiredRef.current.has(msg.id)) break // already handled this message
+      if (pendingAutoRunRef.current.has(msg.id)) break // in-flight, wait for it
 
       // Parse the first tool call out of the message content
       const toolCall = extractFirstToolCall(msg.content)
       if (!toolCall) {
-        // Content has contextforge-tool marker but JSON didn't parse — ask ChatGPT to retry
-        autoRunFiredRef.current.add(msg.id)
+        // contextforge-tool block present but JSON invalid or missing required fields
+        pendingAutoRunRef.current.add(msg.id)
         appendMessage(id, {
           role: 'user',
-          content: 'The tool call in your last message failed to parse (invalid JSON or escape sequences). Please re-issue it using a heredoc for the script body to avoid nested quoting.',
+          content: 'The tool call in your last message is invalid — either the JSON failed to parse, or a required field is missing (`tool`, `cwd`, `command`, `reason`). Please re-issue it with all four fields, using a heredoc for multi-line scripts to avoid nested quoting.',
           attachment_ids: [],
         })
           .then(() => {
+            autoRunFiredRef.current.add(msg.id)
+            pendingAutoRunRef.current.delete(msg.id)
             queryClient.invalidateQueries({ queryKey: ['conversations'] })
             queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
           })
-          .catch(() => {})
+          .catch(() => {
+            pendingAutoRunRef.current.delete(msg.id)
+          })
         break
       }
 
-      autoRunFiredRef.current.add(msg.id)
+      pendingAutoRunRef.current.add(msg.id)
 
       void (async () => {
         try {
           const result = await classifyToolCall(toolCall)
           if (result.tier === 'safe') {
+            // Mark fired before executing — tool runs are not retried on failure
+            autoRunFiredRef.current.add(msg.id)
+            pendingAutoRunRef.current.delete(msg.id)
             await handleRunToolCall(msg.id, toolCall, 'tool-0')
           } else if (result.tier === 'confirm') {
+            autoRunFiredRef.current.add(msg.id)
+            pendingAutoRunRef.current.delete(msg.id)
             setPendingApprovalMessageId(msg.id)
+          } else if (result.tier === 'blocked') {
+            sendNotification('CF: command blocked', result.tier_reason ?? 'blocked command requires manual execution')
+            appendMessage(id, {
+              role: 'user',
+              content: `The command was blocked and cannot be executed automatically.\nReason: ${result.tier_reason ?? 'blocked'}\n\nIf this command requires sudo or destructive operations, please reformulate it without those requirements, or instruct the user to run it manually.`,
+              attachment_ids: [],
+            })
+              .then(() => {
+                autoRunFiredRef.current.add(msg.id)
+                pendingAutoRunRef.current.delete(msg.id)
+                queryClient.invalidateQueries({ queryKey: ['conversations'] })
+                queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
+              })
+              .catch(() => {
+                pendingAutoRunRef.current.delete(msg.id)
+              })
           }
-          // blocked: do nothing, error already visible in tool card
         } catch (err) {
+          pendingAutoRunRef.current.delete(msg.id)
           console.error('[CF auto-run] failed for', msg.id, err)
         }
       })()
@@ -1483,9 +1625,20 @@ export function ThreadView() {
           }
         }
       } catch (err) {
-        setExportStatus(
-          err instanceof Error ? err.message : 'Failed to execute tool call.',
-        )
+        const errMsg = err instanceof Error ? err.message : 'Failed to execute tool call.'
+        setExportStatus(errMsg)
+        if (autoRunEnabledRef.current) {
+          appendMessage(id, {
+            role: 'user',
+            content: `The tool call failed to execute.\nError: ${errMsg}\n\nPlease adjust the command and try again. If the working directory does not exist locally (e.g. it is a remote path), use a local cwd such as \`/tmp\` and run the command via ssh instead.`,
+            attachment_ids: [],
+          })
+            .then(() => {
+              queryClient.invalidateQueries({ queryKey: ['conversations'] })
+              queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
+            })
+            .catch(() => {})
+        }
       } finally {
         setRunningToolCallKey(null)
       }
@@ -1628,16 +1781,6 @@ export function ThreadView() {
         <Panel id="thread" minSize={30} className="cf-thread-panel">
         {/* Graph panel toggle */}
         <div className="cf-thread-toolbar">
-          {showContinue && (
-            <button
-              type="button"
-              className="cf-link-pill cf-toolbar-button cf-toolbar-active"
-              title="Send a continuation prompt to keep the autonomous loop going"
-              onClick={() => sendMessage({ content: 'Please proceed with the next step.', attachmentIds: [] })}
-            >
-              Continue ▶
-            </button>
-          )}
           <button
             type="button"
             className={`cf-link-pill cf-toolbar-button ${autoRunEnabled ? 'cf-toolbar-active' : ''}`}
@@ -1645,8 +1788,14 @@ export function ThreadView() {
               const next = !autoRunEnabled
               setAutoRunEnabled(next)
               autoRunEnabledRef.current = next
-              await patchSettings({ auto_run: next }).catch(() => {})
-              queryClient.invalidateQueries({ queryKey: ['settings'] })
+              await patchConversationAutoRun(id, next).catch(() => {})
+              queryClient.invalidateQueries({ queryKey: ['conversations'] })
+              queryClient.invalidateQueries({ queryKey: ['conversations', id] })
+              if (next) {
+                // Force immediate message refresh so auto-run can act on any
+                // messages that arrived while it was paused.
+                queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
+              }
             }}
             title={autoRunEnabled ? 'Auto-run is ON — safe commands run automatically, confirm commands notify via Pushbullet' : 'Auto-run is OFF — all commands require manual approval'}
           >
@@ -1872,7 +2021,7 @@ export function ThreadView() {
               })}
             </div>
           )}
-          {lastMessageIsUser && (
+          {lastMessageIsUser && autoRunEnabled && (
             <div className="cf-waiting-indicator">
               <span className="cf-waiting-dots" />
               Waiting for ChatGPT response

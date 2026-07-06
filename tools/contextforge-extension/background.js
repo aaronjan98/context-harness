@@ -41,7 +41,10 @@ async function checkAndDispatch(cfConvId, link) {
     console.warn('[CF Bridge] CF returned', res.status, 'for', cfConvId);
     return;
   }
-  const { messages } = await res.json();
+  const data = await res.json();
+  // Respect per-conversation auto_run — ChatGPT→CF sync (MutationObserver) is unaffected.
+  if (!data.conversation?.auto_run) { inFlight.delete(cfConvId); return; }
+  const { messages } = data;
 
   let lastIdx = -1;
   if (link.lastDispatchedMsgId) {

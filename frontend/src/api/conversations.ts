@@ -44,6 +44,7 @@ export interface ToolExecutionRequest {
   command: string
   reason: string
   timeout_seconds: number
+  sudo_password?: string
 }
 
 export class ApiError extends Error {
@@ -338,6 +339,23 @@ export async function patchSettings(
   const payload = await response.json().catch(() => null)
   if (!response.ok) throw toApiError(payload, response)
   return payload as CFSettings
+}
+
+export async function patchConversationAutoRun(
+  conversationId: string,
+  autoRun: boolean,
+): Promise<ConversationSummary> {
+  const response = await fetch(
+    resolveApiUrl(`/api/conversations/${encodeURIComponent(conversationId)}/auto-run`),
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ auto_run: autoRun }),
+    },
+  )
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) throw toApiError(payload, response)
+  return payload as ConversationSummary
 }
 
 // ── Tool call classification ───────────────────────────────────────────────────

@@ -40,33 +40,35 @@ class TerminalExecutionResult:
 
 # Commands that modify filesystem, packages, processes, or git history.
 # These require explicit user approval (Pushbullet notification sent).
+_M = re.MULTILINE  # shorthand — all (^|...) patterns need this so ^ matches inside heredocs
+
 CONFIRM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"(^|[;&|`]\s*)rm\s+"), "file deletion requires approval"),
-    (re.compile(r"(^|[;&|`]\s*)rmdir\b"), "directory removal requires approval"),
-    (re.compile(r"(^|[;&|`]\s*)mv\s+"), "file move requires approval"),
-    (re.compile(r"(^|[;&|`]\s*)cp\s+"), "file copy requires approval"),
-    (re.compile(r"(^|[;&|`]\s*)(?:touch|mkdir|ln)\s+"), "file creation requires approval"),
-    (re.compile(r"(^|[;&|`]\s*)(?:chmod|chown)\b"), "permission change requires approval"),
+    (re.compile(r"(^|[;&|`]\s*)sudo(\s|$)", _M), "sudo requires password and approval"),
+    (re.compile(r"(^|[;&|`]\s*)rm\s+", _M), "file deletion requires approval"),
+    (re.compile(r"(^|[;&|`]\s*)rmdir\b", _M), "directory removal requires approval"),
+    (re.compile(r"(^|[;&|`]\s*)mv\s+", _M), "file move requires approval"),
+    (re.compile(r"(^|[;&|`]\s*)cp\s+", _M), "file copy requires approval"),
+    (re.compile(r"(^|[;&|`]\s*)(?:touch|mkdir|ln)\s+", _M), "file creation requires approval"),
+    (re.compile(r"(^|[;&|`]\s*)(?:chmod|chown)\b", _M), "permission change requires approval"),
     (re.compile(r"(?<!\S)>(?![>=])(?!\s*(?:/tmp/|/dev/null\b))"), "output redirection (overwrite) requires approval"),
-    (re.compile(r"(^|[;&|`]\s*)tee\b(?!.*(?:--append|-a)\b)"), "tee without append requires approval"),
+    (re.compile(r"(^|[;&|`]\s*)tee\b(?!.*(?:--append|-a)\b)", _M), "tee without append requires approval"),
     (re.compile(r"\bgit\s+(?:commit|push|checkout|switch|merge|rebase|cherry-pick|stash\s+pop|branch\s+-[dD]|tag\s+-d)\b"), "git write operation requires approval"),
     (re.compile(r"\bgit\s+add\b"), "git add requires approval"),
     (re.compile(r"\b(?:pip|pip3|uv)\s+(?:install|uninstall|upgrade)\b"), "package install requires approval"),
     (re.compile(r"\b(?:npm|yarn|pnpm)\s+(?:install|uninstall|remove|update|ci)\b"), "package install requires approval"),
-    (re.compile(r"(^|[;&|`]\s*)(?:apt|apt-get|dnf|yum|brew|nix-env|nix\s+profile)\s+"), "system package operation requires approval"),
+    (re.compile(r"(^|[;&|`]\s*)(?:apt|apt-get|dnf|yum|brew|nix-env|nix\s+profile)\s+", _M), "system package operation requires approval"),
     (re.compile(r"\b(?:kill|pkill|killall)\b"), "process termination requires approval"),
     (re.compile(r"\bdocker\s+(?:run|stop|start|rm|rmi|kill|compose\s+(?:up|down|rm))\b"), "docker mutation requires approval"),
     (re.compile(r"\bsystemctl\s+(?:start|stop|restart|enable|disable|daemon-reload|mask|unmask)\b"), "systemctl write operation requires approval"),
     (re.compile(r"\b(?:curl|wget)\s+.*(?:-o\s+|-O\b|--output\b)"), "download-to-file requires approval"),
-    (re.compile(r"\bscp\b"), "scp requires approval"),
+    (re.compile(r"\bscp\b(?!.*\s+\S+:/tmp/)"), "scp requires approval"),
     (re.compile(r"\brsync\b"), "rsync requires approval"),
     (re.compile(r"\bdd\b"), "dd requires approval"),
 )
 
 DANGEROUS_COMMAND_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"(^|[;&|]\s*)sudo(\s|$)"), "sudo commands must be run manually"),
     (
-        re.compile(r"(^|[;&|]\s*)rm\s+-[^\n;&|]*[rR][^\n;&|]*[fF]?"),
+        re.compile(r"(^|[;&|]\s*)rm\s+-[^\n;&|]*[rR][^\n;&|]*[fF]?", _M),
         "recursive remove commands must be run manually",
     ),
     (
@@ -142,15 +144,30 @@ def classify_command(command: str) -> tuple[CommandTier, str]:
             return CommandTier.BLOCKED, message
 
     # SSH is a transport layer — classify by what it actually runs remotely.
-    # Compound commands containing ssh (e.g. `ls && ssh host "rm ..."`) fall
-    # through to CONFIRM since we can't reliably extract the remote command.
+    # For compound commands, split on shell operators and classify each segment.
     if _SSH_RE.search(command):
-        if command.strip().startswith("ssh"):
-            remote = _parse_ssh_remote(command.strip())
-            if remote:
-                tier, reason = classify_command(remote)
-                return tier, f"(via ssh) {reason}"
-        return CommandTier.CONFIRM, "SSH command requires approval"
+        segments = re.split(r"&&|(?<![;&|])[;&|](?![;&|])", command)
+        worst_tier = CommandTier.SAFE
+        worst_reason = "read-only command"
+        for seg in segments:
+            seg = seg.strip()
+            if not seg:
+                continue
+            if seg.startswith("ssh"):
+                remote = _parse_ssh_remote(seg)
+                if remote:
+                    t, r = classify_command(remote)
+                    seg_tier, seg_reason = t, f"(via ssh) {r}"
+                else:
+                    seg_tier, seg_reason = CommandTier.CONFIRM, "SSH command requires approval"
+            else:
+                seg_tier, seg_reason = classify_command(seg)
+            if list(CommandTier).index(seg_tier) > list(CommandTier).index(worst_tier):
+                worst_tier = seg_tier
+                worst_reason = seg_reason
+            if worst_tier == CommandTier.BLOCKED:
+                break
+        return worst_tier, worst_reason
 
     for pattern, message in CONFIRM_PATTERNS:
         if pattern.search(command):
@@ -194,16 +211,28 @@ def validate_terminal_exec(*, cwd: str, command: str, reason: str) -> None:
             raise ToolExecutionError(message)
 
 
+def _apply_sudo_password(command: str, sudo_password: str) -> tuple[str, str | None]:
+    """Return (modified_command, stdin_input) with sudo -S substituted in."""
+    modified = re.sub(r'\bsudo\b', 'sudo -S -p ""', command)
+    stdin_input = (sudo_password + '\n') * 20
+    return modified, stdin_input
+
+
 def execute_terminal_command(
     *,
     cwd: str,
     command: str,
     reason: str,
     timeout_seconds: int = 60,
+    sudo_password: str | None = None,
 ) -> TerminalExecutionResult:
     """Run an explicitly approved terminal command and capture output."""
     validate_terminal_exec(cwd=cwd, command=command, reason=reason)
     expanded_cwd = Path(cwd).expanduser()
+
+    stdin_input: str | None = None
+    if sudo_password and re.search(r'\bsudo\b', command):
+        command, stdin_input = _apply_sudo_password(command, sudo_password)
 
     try:
         completed = subprocess.run(
@@ -214,6 +243,7 @@ def execute_terminal_command(
             capture_output=True,
             timeout=timeout_seconds,
             check=False,
+            input=stdin_input,
         )
     except subprocess.TimeoutExpired as error:
         stdout = error.stdout if isinstance(error.stdout, str) else ""
@@ -244,6 +274,7 @@ async def stream_terminal_command(
     cwd: str,
     command: str,
     timeout_seconds: int = 120,
+    sudo_password: str | None = None,
 ) -> AsyncGenerator[dict[str, object], None]:
     """Async generator yielding event dicts from a running command.
 
@@ -253,12 +284,24 @@ async def stream_terminal_command(
       {'type': 'exit',   'code': int, 'stdout': str, 'stderr': str}
     """
     expanded_cwd = Path(cwd).expanduser()
+
+    stdin_bytes: bytes | None = None
+    if sudo_password and re.search(r'\bsudo\b', command):
+        command, stdin_str = _apply_sudo_password(command, sudo_password)
+        stdin_bytes = stdin_str.encode()
+
     process = await asyncio.create_subprocess_shell(
         command,
         cwd=str(expanded_cwd),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        stdin=asyncio.subprocess.PIPE if stdin_bytes else None,
     )
+
+    if stdin_bytes and process.stdin:
+        process.stdin.write(stdin_bytes)
+        await process.stdin.drain()
+        process.stdin.close()
 
     queue: asyncio.Queue[tuple[str, str | None]] = asyncio.Queue()
     stdout_buf: list[str] = []
@@ -298,7 +341,10 @@ async def stream_terminal_command(
             yield {"type": tag, "chunk": chunk}
 
     if timed_out:
-        process.kill()
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
         for task in tasks:
             task.cancel()
         stderr_buf.append(f"\nCommand timed out after {timeout_seconds}s.\n")
@@ -306,7 +352,17 @@ async def stream_terminal_command(
     else:
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    exit_code = await process.wait()
+    # After kill, SSH subprocesses may keep the local client alive waiting for the
+    # remote to close. Cap the wait so the stream always terminates promptly.
+    try:
+        exit_code = await asyncio.wait_for(process.wait(), timeout=5.0)
+    except asyncio.TimeoutError:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        exit_code = -1
+
     yield {
         "type": "exit",
         "code": exit_code,
@@ -315,17 +371,43 @@ async def stream_terminal_command(
     }
 
 
+STDOUT_INLINE_LIMIT = 10_000
+_HEAD_CHARS = 3_000
+_TAIL_CHARS = 1_000
+
+
 def format_terminal_result_markdown(
     *,
     source_message_id: str,
     result: TerminalExecutionResult,
+    log_dir: Path | None = None,
 ) -> str:
-    """Render a terminal execution result as a durable tool message."""
-    stdout = result.stdout.rstrip() or "(no stdout)"
+    """Render a terminal execution result as a durable tool message.
+
+    When stdout exceeds STDOUT_INLINE_LIMIT and log_dir is provided, the full
+    output is written to a log file and only a head+tail preview is inlined.
+    """
+    stdout_raw = result.stdout.rstrip() or "(no stdout)"
     stderr = result.stderr.rstrip() or "(no stderr)"
+
+    stdout_log_note = ""
+    if log_dir is not None and len(stdout_raw) > STDOUT_INLINE_LIMIT:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"{source_message_id}-stdout.log"
+        log_path.write_text(stdout_raw, encoding="utf-8")
+        omitted = len(stdout_raw) - (_HEAD_CHARS + _TAIL_CHARS)
+        stdout_display = (
+            f"{stdout_raw[:_HEAD_CHARS]}\n\n"
+            f"[... {omitted:,} characters omitted — full output at {log_path} ...]\n\n"
+            f"{stdout_raw[-_TAIL_CHARS:]}"
+        )
+        stdout_log_note = f" (truncated — full output at `{log_path}`)"
+    else:
+        stdout_display = stdout_raw
+
     cwd_block = fenced_block("text", result.cwd)
     command_block = fenced_block("bash", result.command)
-    stdout_block = fenced_block("text", stdout)
+    stdout_block = fenced_block("text", stdout_display)
     stderr_block = fenced_block("text", stderr)
     return f"""Context Forge executed a requested terminal command.
 
@@ -340,7 +422,7 @@ Command:
 
 Exit code: `{result.exit_code}`
 
-Stdout:
+Stdout:{stdout_log_note}
 {stdout_block}
 
 Stderr:

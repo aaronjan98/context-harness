@@ -70,6 +70,7 @@ interface ParsedToolCall {
   key: string
   raw: string
   toolCall?: ToolExecutionRequest
+  doneSignal?: { summary: string }
   error?: string
 }
 
@@ -271,6 +272,10 @@ function parseToolCall(raw: string, key: string): ParsedToolCall {
     const reason = candidate.reason
     const timeout_seconds =
       typeof candidate.timeout_seconds === 'number' ? candidate.timeout_seconds : 300
+    if (tool === 'terminal.done') {
+      const summary = typeof candidate.summary === 'string' ? candidate.summary : ''
+      return { key, raw, doneSignal: { summary } }
+    }
     if (tool !== 'terminal.exec') {
       return { key, raw, error: 'Only terminal.exec is supported right now.' }
     }
@@ -416,6 +421,7 @@ function ToolCallCard({
   const [copied, setCopied] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  const [sudoPassword, setSudoPassword] = useState('')
   const logRef = useRef<HTMLPreElement>(null)
 
   useEffect(() => {
@@ -487,6 +493,17 @@ function ToolCallCard({
     setIsEditing(false)
   }
 
+  if (parsed.doneSignal) {
+    return (
+      <div className="cf-tool-call-card cf-tool-call-done" onClick={(e) => e.stopPropagation()}>
+        <div className="cf-tool-call-title">Goal complete</div>
+        {parsed.doneSignal.summary && (
+          <div className="cf-tool-call-done-summary">{parsed.doneSignal.summary}</div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div
       className="cf-tool-call-card"
@@ -544,14 +561,41 @@ function ToolCallCard({
               Reset
             </button>
           )}
+          {activeToolCall && /\bsudo\b/.test(activeToolCall.command) && (
+            <input
+              type="password"
+              className="cf-sudo-password-input"
+              placeholder="sudo password"
+              value={sudoPassword}
+              onChange={(e) => setSudoPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && sudoPassword && activeToolCall && onRun && !isRunning) {
+                  e.stopPropagation()
+                  onRun({ ...activeToolCall, sudo_password: sudoPassword }, parsed.key)
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              disabled={isRunning}
+              autoComplete="current-password"
+            />
+          )}
           <button
             type="button"
             className="cf-primary-button"
             onClick={(event) => {
               event.stopPropagation()
-              if (activeToolCall) onRun?.(activeToolCall, parsed.key)
+              if (!activeToolCall) return
+              const needsSudo = /\bsudo\b/.test(activeToolCall.command)
+              if (needsSudo && !sudoPassword) return
+              onRun?.(
+                needsSudo ? { ...activeToolCall, sudo_password: sudoPassword } : activeToolCall,
+                parsed.key,
+              )
             }}
-            disabled={!activeToolCall || !onRun || isRunning}
+            disabled={
+              !activeToolCall || !onRun || isRunning ||
+              (/\bsudo\b/.test(activeToolCall?.command ?? '') && !sudoPassword)
+            }
           >
             {isRunning ? 'Running...' : 'Run'}
           </button>

@@ -381,14 +381,14 @@ def test_execute_tool_call_rejects_blocked_command(client, tmp_path: Path) -> No
         json={
             "tool": "terminal.exec",
             "cwd": str(tmp_path),
-            "command": "sudo id",
+            "command": "rm -rf /tmp/important",
             "reason": "This should be blocked.",
         },
     )
     thread = client.get("/api/conversations/api-tool-block/thread")
 
     assert response.status_code == 400
-    assert "sudo commands" in response.json()["detail"]
+    assert "recursive remove" in response.json()["detail"]
     assert len(thread.json()["messages"]) == 1
 
 

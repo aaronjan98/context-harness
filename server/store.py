@@ -34,6 +34,7 @@ class ConversationMetadata:
     created_at: str
     root_message_id: str | None
     active_message_id: str | None
+    auto_run: bool = False
 
 
 @dataclass(slots=True)
@@ -165,6 +166,7 @@ class ConversationStore:
             created_at=str(values.get("created_at") or ""),
             root_message_id=self._optional_string(values.get("root_message_id")),
             active_message_id=self._optional_string(values.get("active_message_id")),
+            auto_run=bool(values.get("auto_run", False)),
         )
 
     def conversation_summary(self, conversation_id: str) -> dict[str, Any]:
@@ -177,6 +179,7 @@ class ConversationStore:
             "created_at": metadata.created_at,
             "root_message_id": metadata.root_message_id,
             "active_message_id": metadata.active_message_id,
+            "auto_run": metadata.auto_run,
             "paths": {
                 "root": str(paths.root),
                 "conversation_file": str(paths.conversation_file),
@@ -209,6 +212,16 @@ class ConversationStore:
         paths = self.require_existing_conversation(conversation_id)
         metadata = self.load_conversation_metadata(conversation_id)
         metadata.title = title
+        self.write_conversation_metadata(paths, metadata)
+        return self.conversation_summary(conversation_id)
+
+    def update_conversation_auto_run(
+        self, conversation_id: str, auto_run: bool
+    ) -> dict[str, Any]:
+        """Set per-conversation auto-run and return the updated summary."""
+        paths = self.require_existing_conversation(conversation_id)
+        metadata = self.load_conversation_metadata(conversation_id)
+        metadata.auto_run = auto_run
         self.write_conversation_metadata(paths, metadata)
         return self.conversation_summary(conversation_id)
 
@@ -634,13 +647,15 @@ class ConversationStore:
         self, paths: StorePaths, metadata: ConversationMetadata
     ) -> None:
         """Persist conversation-level metadata back to disk."""
-        payload = {
+        payload: dict[str, Any] = {
             "id": metadata.id,
             "title": metadata.title,
             "created_at": metadata.created_at,
             "root_message_id": metadata.root_message_id,
             "active_message_id": metadata.active_message_id,
         }
+        if metadata.auto_run:
+            payload["auto_run"] = True
         paths.conversation_file.write_text(
             yaml.safe_dump(payload, sort_keys=False),
             encoding="utf-8",

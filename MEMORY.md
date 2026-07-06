@@ -90,3 +90,4 @@ Explicit boundary:
 - `memory/2026-04-17.md` — product reset toward `agent-display`
 - `memory/2026-04-18.md` — backend foundation, testing, and current checkpoint
 - `memory/2026-04-18b.md` — frontend architecture planning and scaffold
+- `memory/2026-07-05 auto-run-fixes-and-per-conv.md` — auto-run reliability fixes, per-conversation auto-run, extension bridge gating

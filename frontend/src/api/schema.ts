@@ -271,6 +271,8 @@ export interface components {
             root_message_id: string | null;
             /** Active Message Id */
             active_message_id: string | null;
+            /** Auto Run */
+            auto_run: boolean;
             paths: components["schemas"]["ConversationPathsResponse"];
         };
         /**

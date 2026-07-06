@@ -192,6 +192,9 @@ export function ConversationSidebar() {
                         startRename(convo)
                       }}
                     >
+                      {convo.auto_run && (
+                        <span className="cf-autorun-badge" title="Auto-run on" />
+                      )}
                       {convo.title ?? 'Untitled'}
                     </Link>
                     <button

@@ -74,12 +74,19 @@ class ToolExecutionRequest(BaseModel):
     command: str = Field(min_length=1)
     reason: str = Field(min_length=1)
     timeout_seconds: int = Field(default=300, ge=1, le=3600)
+    sudo_password: str | None = None
 
 
 class ImportMarkdownRequest(BaseModel):
     """Payload for importing an external Markdown transcript."""
 
     content: str = Field(min_length=1)
+
+
+class ConversationAutoRunRequest(BaseModel):
+    """Payload for toggling per-conversation auto-run."""
+
+    auto_run: bool
 
 
 class IngestMessageRequest(BaseModel):
@@ -115,6 +122,7 @@ class ConversationSummaryResponse(BaseModel):
     created_at: str
     root_message_id: str | None
     active_message_id: str | None
+    auto_run: bool = False
     paths: ConversationPathsResponse
 
 
@@ -425,6 +433,20 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
         except FileNotFoundError as error:
             raise conversation_not_found(conversation_id) from error
 
+    @app.patch(
+        "/api/conversations/{conversation_id}/auto-run",
+        response_model=ConversationSummaryResponse,
+    )
+    async def set_conversation_auto_run(
+        conversation_id: str,
+        payload: ConversationAutoRunRequest,
+    ) -> dict[str, object]:
+        """Toggle per-conversation auto-run mode."""
+        try:
+            return store.update_conversation_auto_run(conversation_id, payload.auto_run)
+        except FileNotFoundError as error:
+            raise conversation_not_found(conversation_id) from error
+
     @app.delete("/api/conversations/{conversation_id}", status_code=204)
     async def delete_conversation(conversation_id: str) -> None:
         """Delete one conversation and its canonical files."""
@@ -631,6 +653,7 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
         except ToolExecutionError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
+        log_dir = store.conversation_dir(conversation_id) / "tool-logs"
         store.append_message(
             conversation_id,
             role="tool",
@@ -638,6 +661,7 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
             content=format_terminal_result_markdown(
                 source_message_id=message_id,
                 result=result,
+                log_dir=log_dir,
             ),
             message_format="markdown",
         )
@@ -677,6 +701,7 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
                     cwd=payload.cwd,
                     command=payload.command,
                     timeout_seconds=payload.timeout_seconds,
+                    sudo_password=payload.sudo_password,
                 ):
                     yield f"data: {json_mod.dumps(event)}\n\n"
                     if event["type"] == "exit":
@@ -688,6 +713,7 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
                             stdout=str(event["stdout"]),
                             stderr=str(event["stderr"]),
                         )
+                        log_dir = store.conversation_dir(conversation_id) / "tool-logs"
                         store.append_message(
                             conversation_id,
                             role="tool",
@@ -695,6 +721,7 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
                             content=format_terminal_result_markdown(
                                 source_message_id=message_id,
                                 result=result,
+                                log_dir=log_dir,
                             ),
                             message_format="markdown",
                         )

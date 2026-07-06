@@ -185,6 +185,19 @@ textarea {
   font-weight: 600;
 }
 
+.cf-autorun-badge {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cf-accent, #4caf50);
+  margin-right: 6px;
+  flex-shrink: 0;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+}
+
 .cf-conversation-delete {
   width: 32px;
   border: 0;
@@ -1017,6 +1030,30 @@ textarea {
   font-weight: 600;
 }
 
+.cf-tool-call-done {
+  border-color: #34d399;
+  padding: 10px 14px;
+}
+
+:root.dark .cf-tool-call-done {
+  border-color: rgba(52, 211, 153, 0.4);
+}
+
+.cf-tool-call-done .cf-tool-call-title {
+  color: #059669;
+  font-size: 13px;
+}
+
+:root.dark .cf-tool-call-done .cf-tool-call-title {
+  color: #34d399;
+}
+
+.cf-tool-call-done-summary {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--cf-subtle);
+}
+
 .cf-tool-call-pending-badge {
   margin-top: 4px;
   font-size: 11px;
@@ -1053,6 +1090,25 @@ textarea {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.cf-sudo-password-input {
+  background: var(--cf-bg);
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 4px;
+  color: var(--cf-text);
+  font-size: 12px;
+  padding: 4px 10px;
+  width: 140px;
+}
+
+.cf-sudo-password-input::placeholder {
+  color: var(--cf-subtle);
+}
+
+.cf-sudo-password-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .cf-tool-call-field {
