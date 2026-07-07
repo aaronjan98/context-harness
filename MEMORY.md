@@ -91,3 +91,4 @@ Explicit boundary:
 - `memory/2026-04-18.md` — backend foundation, testing, and current checkpoint
 - `memory/2026-04-18b.md` — frontend architecture planning and scaffold
 - `memory/2026-07-05 auto-run-fixes-and-per-conv.md` — auto-run reliability fixes, per-conversation auto-run, extension bridge gating
+- `memory/2026-07-07.md` — agent mode rename, chat-interface mode fix, storage architecture discussion

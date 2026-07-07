@@ -42,8 +42,8 @@ async function checkAndDispatch(cfConvId, link) {
     return;
   }
   const data = await res.json();
-  // Respect per-conversation auto_run — ChatGPT→CF sync (MutationObserver) is unaffected.
-  if (!data.conversation?.auto_run) { inFlight.delete(cfConvId); return; }
+  // Always dispatch pending user messages regardless of agent mode.
+  // Agent mode (auto_run) only controls tool execution and auto-continue on the CF side.
   const { messages } = data;
 
   let lastIdx = -1;

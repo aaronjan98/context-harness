@@ -1202,13 +1202,13 @@ export function ThreadView() {
     queryKey: ['conversations', id, 'messages'],
     queryFn: () => fetchMessages(id),
     enabled: !!id,
-    // Poll while auto-run is on and the last message is a user message (waiting for ChatGPT)
-    // or when there is an unexecuted tool call that auto-run will handle.
+    // Poll when waiting for ChatGPT to respond (always, regardless of agent mode)
+    // or when there is an unexecuted tool call that agent mode will handle.
     refetchInterval: (query) => {
       const msgs = query.state.data
       if (!msgs || msgs.length === 0) return false
       const last = msgs[msgs.length - 1]
-      if (last.role === 'user' && autoRunEnabled) return 2000
+      if (last.role === 'user') return 2000
       if (
         last.role === 'assistant' &&
         last.content.includes('contextforge-tool')
@@ -1797,9 +1797,9 @@ export function ThreadView() {
                 queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] })
               }
             }}
-            title={autoRunEnabled ? 'Auto-run is ON — safe commands run automatically, confirm commands notify via Pushbullet' : 'Auto-run is OFF — all commands require manual approval'}
+            title={autoRunEnabled ? 'Agent mode ON — tool commands run automatically; unsafe ones prompt for approval' : 'Agent mode OFF — messages are forwarded to ChatGPT but tool commands are not executed'}
           >
-            Auto-run: {autoRunEnabled ? 'On' : 'Off'}
+            Agent: {autoRunEnabled ? 'On' : 'Off'}
           </button>
           <button
             type="button"
@@ -2021,7 +2021,7 @@ export function ThreadView() {
               })}
             </div>
           )}
-          {lastMessageIsUser && autoRunEnabled && (
+          {lastMessageIsUser && (
             <div className="cf-waiting-indicator">
               <span className="cf-waiting-dots" />
               Waiting for ChatGPT response

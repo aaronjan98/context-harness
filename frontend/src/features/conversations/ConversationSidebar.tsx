@@ -193,7 +193,7 @@ export function ConversationSidebar() {
                       }}
                     >
                       {convo.auto_run && (
-                        <span className="cf-autorun-badge" title="Auto-run on" />
+                        <span className="cf-autorun-badge" title="Agent mode on" />
                       )}
                       {convo.title ?? 'Untitled'}
                     </Link>
