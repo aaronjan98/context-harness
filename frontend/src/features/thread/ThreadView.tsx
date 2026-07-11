@@ -300,6 +300,8 @@ Use exactly one fenced block when requesting local execution:
 }
 \`\`\`
 
+Optional fields: \`"timeout_seconds"\` (default 300, max 3600) — raise to 900–3600 for TTS renders, compilation, large downloads, or any command expected to take over 2 minutes.
+
 Rules:
 - Do not claim you read files or ran commands yourself.
 - Do not output terminal results unless Context Forge has returned them.
@@ -307,7 +309,8 @@ Rules:
 - Use absolute paths or shell-expanded home paths clearly.
 - Do not put secrets in commands.
 - Do not request destructive commands unless explicitly necessary and clearly justified.
-- Wait for Context Forge to return command results before continuing.${taskBlock}`.trim()
+- Wait for Context Forge to return command results before continuing.
+- If a command times out (stderr contains 'Command timed out'), retry the identical command with a higher \`"timeout_seconds"\` (e.g. 900 or 3600). Do not restructure or wrap it.${taskBlock}`.trim()
 }
 
 const CHATBOT_STDOUT_LIMIT = 10_000

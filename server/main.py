@@ -665,6 +665,21 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
             ),
             message_format="markdown",
         )
+
+        if "timed out" in result.stderr:
+            s = load_settings()
+            if s.pushbullet_token:
+                truncated = result.command[:200] + ("…" if len(result.command) > 200 else "")
+                await send_pushbullet_notification(
+                    s.pushbullet_token,
+                    title="CF: Command timed out",
+                    body=(
+                        f"Timed out after {payload.timeout_seconds}s.\n"
+                        f"Command: {truncated}\n\n"
+                        "Retry with a higher timeout_seconds (up to 3600), or run it manually."
+                    ),
+                )
+
         thread_data = await get_active_thread(conversation_id)
         return {
             **thread_data,
@@ -725,6 +740,19 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
                             ),
                             message_format="markdown",
                         )
+                        if "timed out" in result.stderr:
+                            s = load_settings()
+                            if s.pushbullet_token:
+                                truncated = payload.command[:200] + ("…" if len(payload.command) > 200 else "")
+                                await send_pushbullet_notification(
+                                    s.pushbullet_token,
+                                    title="CF: Command timed out",
+                                    body=(
+                                        f"Timed out after {payload.timeout_seconds}s.\n"
+                                        f"Command: {truncated}\n\n"
+                                        "Retry with a higher timeout_seconds (up to 3600), or run it manually."
+                                    ),
+                                )
                         yield f"data: {json_mod.dumps({'type': 'done'})}\n\n"
             except Exception as exc:
                 yield f"data: {json_mod.dumps({'type': 'error', 'message': str(exc)})}\n\n"
