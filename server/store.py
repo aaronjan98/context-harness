@@ -744,7 +744,69 @@ class ConversationStore:
         if not content:
             return
         role, agent = self.normalize_imported_speaker(speaker)
-        messages.append(ImportedMessage(role=role, agent=agent, content=content))
+        messages.append(
+            ImportedMessage(
+                role=role,
+                agent=agent,
+                content=self.normalize_imported_content(content),
+            )
+        )
+
+    @classmethod
+    def normalize_imported_content(cls, content: str) -> str:
+        """Clean up common UI artifacts in imported chatbot transcripts."""
+        content = re.sub(r"\n?Show more\s*$", "", content).strip()
+        return cls.normalize_flat_tool_transcript(content)
+
+    @classmethod
+    def normalize_flat_tool_transcript(cls, content: str) -> str:
+        """Fence flattened `Command:`/`Result:` blocks from ChatGPT imports."""
+        if "```" in content or "Command:" not in content or "Result:" not in content:
+            return content
+
+        pattern = re.compile(
+            r"(?P<prefix>^|\n)"
+            r"Command:\s*\n"
+            r"(?P<command>.*?)"
+            r"\s+(?:(?P<exit>Exit code:\s*`?\d+`?)\s+)?"
+            r"Result:\s*\n?"
+            r"(?P<result>.*?)(?=\nCommand:\s*\n|\Z)",
+            re.DOTALL,
+        )
+
+        def replace(match: re.Match[str]) -> str:
+            command = cls.strip_imported_fence_language(match.group("command"), "bash")
+            result = cls.strip_imported_fence_language(match.group("result"), "text")
+            exit_code = match.group("exit")
+
+            parts = [
+                match.group("prefix"),
+                "Command:\n",
+                cls.fenced_block("bash", command),
+            ]
+            if exit_code:
+                parts.extend(["\n\n", exit_code.replace("`", "")])
+            parts.extend(["\n\nResult:\n", cls.fenced_block("text", result)])
+            return "".join(parts)
+
+        return pattern.sub(replace, content).strip()
+
+    @staticmethod
+    def strip_imported_fence_language(content: str, language: str) -> str:
+        """Remove a language token that was flattened out of a code fence."""
+        stripped = content.strip()
+        prefix = f"{language} "
+        return stripped[len(prefix) :].strip() if stripped.startswith(prefix) else stripped
+
+    @staticmethod
+    def fenced_block(language: str, content: str) -> str:
+        """Return a Markdown fence that cannot be closed by the content."""
+        longest_run = max(
+            (len(match.group(0)) for match in re.finditer(r"`+", content)),
+            default=0,
+        )
+        fence = "`" * max(3, longest_run + 1)
+        return f"{fence}{language}\n{content}\n{fence}"
 
     @staticmethod
     def speaker_from_heading(line: str) -> str | None:

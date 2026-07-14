@@ -358,6 +358,68 @@ def test_import_markdown_prefixed_transcript(store: ConversationStore) -> None:
     ]
 
 
+def test_import_markdown_fences_flattened_tool_transcript(
+    store: ConversationStore,
+) -> None:
+    conversation_id = "unit-import-flat-tool"
+    store.initialize_conversation(conversation_id)
+
+    store.import_markdown(
+        conversation_id,
+        (
+            "User:\n"
+            "Command:\n"
+            "bash ssh qwerty 'python3 - <<PY print(1) PY'\n"
+            " Result:\n"
+            "text 200 {\"status\":\"ok\"}\n"
+            "Show more"
+        ),
+    )
+
+    message = store.active_thread(conversation_id)[0]
+    assert message.content == (
+        "Command:\n"
+        "```bash\n"
+        "ssh qwerty 'python3 - <<PY print(1) PY'\n"
+        "```\n\n"
+        "Result:\n"
+        "```text\n"
+        "200 {\"status\":\"ok\"}\n"
+        "```"
+    )
+
+
+def test_import_markdown_preserves_flattened_tool_exit_code(
+    store: ConversationStore,
+) -> None:
+    conversation_id = "unit-import-flat-tool-exit"
+    store.initialize_conversation(conversation_id)
+
+    store.import_markdown(
+        conversation_id,
+        (
+            "User:\n"
+            "Command:\n"
+            "bash false\n"
+            " Exit code: 1 Result:\n"
+            "text failure"
+        ),
+    )
+
+    message = store.active_thread(conversation_id)[0]
+    assert message.content == (
+        "Command:\n"
+        "```bash\n"
+        "false\n"
+        "```\n\n"
+        "Exit code: 1\n\n"
+        "Result:\n"
+        "```text\n"
+        "failure\n"
+        "```"
+    )
+
+
 def test_import_markdown_paragraph_fallback(store: ConversationStore) -> None:
     conversation_id = "unit-import-paragraphs"
     store.initialize_conversation(conversation_id)

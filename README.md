@@ -177,3 +177,7 @@ uvicorn server.main:app --reload --port 8000
 ```
 
 The frontend lives in `frontend/` and is a React/Vite app.
+
+```bash
+npm run dev
+```
