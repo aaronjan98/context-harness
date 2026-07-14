@@ -54,3 +54,7 @@ Sessionx.vim
 *~
 tags
 [._]*.un~
+
+# Firefox extension build artifacts
+*.xpi
+tools/contextforge-extension/.amo-upload-uuid
