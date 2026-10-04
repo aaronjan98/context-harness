@@ -160,34 +160,71 @@ function downloadMarkdown(filename: string, markdown: string) {
   URL.revokeObjectURL(url)
 }
 
-// Extract the first contextforge-tool call from a message for auto-run.
-// Mirrors the parsing logic in MessageContent without full error-surface UI.
-function extractFirstToolCall(content: string): ToolExecutionRequest | null {
+// Pull the raw JSON body of a contextforge-tool call out of a message. Tolerates
+// the several shapes it arrives in: a proper ```contextforge-tool fence; a fence
+// whose language label sits on its own line; and — when synced from ChatGPT's
+// 2026 UI, whose code blocks our extractor renders as an inline code span — the
+// bare `contextforge-tool` label followed by the JSON wrapped in single/triple
+// backticks. Returns the raw (unsanitized) JSON text, or null.
+function extractToolCallJson(content: string): string | null {
   const normalized = content.replace(
     /(^|\n)```\ncontextforge-tool\n/g,
     '$1```contextforge-tool\n',
   )
-  const match = /(^|\n)```contextforge-tool[^\n]*\n([\s\S]*?)\n```/.exec(normalized)
-  if (!match) return null
-  try {
-    const raw = match[2].trim()
-    // Sanitize literal newlines/tabs inside JSON strings, and fix invalid
-    // escape sequences like \$ that shells use but JSON does not allow.
-    const JSON_ESCAPE_CHARS = new Set(['"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u'])
-    let inString = false, escaped = false, sanitized = ''
-    for (const ch of raw) {
-      if (escaped) {
-        if (!JSON_ESCAPE_CHARS.has(ch)) sanitized += '\\' // re-escape invalid \X → \\X
-        sanitized += ch; escaped = false
-      }
-      else if (ch === '\\' && inString) { sanitized += ch; escaped = true }
-      else if (ch === '"') { sanitized += ch; inString = !inString }
-      else if (inString && ch === '\n') sanitized += '\\n'
-      else if (inString && ch === '\r') sanitized += '\\r'
-      else if (inString && ch === '\t') sanitized += '\\t'
-      else sanitized += ch
+  const fenced = /(^|\n)```contextforge-tool[^\n]*\n([\s\S]*?)\n```/.exec(normalized)
+  if (fenced) return fenced[2].trim()
+  // Fence lost in extraction: require the label, then take the first balanced
+  // {...} object after it.
+  const label = /contextforge-tool/.exec(normalized)
+  if (!label) return null
+  return firstBalancedJsonObject(normalized.slice(label.index + label[0].length))
+}
+
+// Scan out the first balanced top-level {...} object, respecting JSON string
+// quoting so a brace inside a string value doesn't terminate it early.
+function firstBalancedJsonObject(s: string): string | null {
+  const start = s.indexOf('{')
+  if (start === -1) return null
+  let depth = 0, inStr = false, esc = false
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i]
+    if (esc) { esc = false; continue }
+    if (ch === '\\') { esc = true; continue }
+    if (ch === '"') { inStr = !inStr; continue }
+    if (inStr) continue
+    if (ch === '{') depth++
+    else if (ch === '}' && --depth === 0) return s.slice(start, i + 1)
+  }
+  return null
+}
+
+// Sanitize literal newlines/tabs inside JSON strings, and fix invalid escape
+// sequences like \$ that shells use but JSON does not allow.
+function sanitizeToolJson(raw: string): string {
+  const JSON_ESCAPE_CHARS = new Set(['"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u'])
+  let inString = false, escaped = false, sanitized = ''
+  for (const ch of raw) {
+    if (escaped) {
+      if (!JSON_ESCAPE_CHARS.has(ch)) sanitized += '\\' // re-escape invalid \X → \\X
+      sanitized += ch; escaped = false
     }
-    const obj = JSON.parse(sanitized) as Record<string, unknown>
+    else if (ch === '\\' && inString) { sanitized += ch; escaped = true }
+    else if (ch === '"') { sanitized += ch; inString = !inString }
+    else if (inString && ch === '\n') sanitized += '\\n'
+    else if (inString && ch === '\r') sanitized += '\\r'
+    else if (inString && ch === '\t') sanitized += '\\t'
+    else sanitized += ch
+  }
+  return sanitized
+}
+
+// Extract the first contextforge-tool call from a message for auto-run.
+// Mirrors the parsing logic in MessageContent without full error-surface UI.
+function extractFirstToolCall(content: string): ToolExecutionRequest | null {
+  const raw = extractToolCallJson(content)
+  if (raw === null) return null
+  try {
+    const obj = JSON.parse(sanitizeToolJson(raw)) as Record<string, unknown>
     const { tool, cwd, command, reason, timeout_seconds } = obj
     if (
       tool !== 'terminal.exec' ||
@@ -208,14 +245,10 @@ function extractFirstToolCall(content: string): ToolExecutionRequest | null {
 }
 
 function extractDoneSignal(content: string): { summary: string } | null {
-  const normalized = content.replace(
-    /(^|\n)```\ncontextforge-tool\n/g,
-    '$1```contextforge-tool\n',
-  )
-  const match = /(^|\n)```contextforge-tool[^\n]*\n([\s\S]*?)\n```/.exec(normalized)
-  if (match) {
+  const raw = extractToolCallJson(content)
+  if (raw !== null) {
     try {
-      const obj = JSON.parse(match[2].trim()) as Record<string, unknown>
+      const obj = JSON.parse(sanitizeToolJson(raw)) as Record<string, unknown>
       if (obj.tool !== 'terminal.done') return null
       return { summary: typeof obj.summary === 'string' ? obj.summary : '' }
     } catch {

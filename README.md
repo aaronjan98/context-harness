@@ -173,8 +173,13 @@ pytest
 The current backend entrypoint is:
 
 ```bash
-uvicorn server.main:app --reload --port 8000
+uvicorn server.main:app --reload --port 8000 --host ::
 ```
+
+`--host ::` binds dual-stack. On many systems `localhost` resolves to IPv6
+`::1` first; without this, uvicorn listens only on IPv4 `127.0.0.1` and the
+browser extension's `fetch('http://localhost:8000/...')` fails with a
+`NetworkError` after every backend restart.
 
 The frontend lives in `frontend/` and is a React/Vite app.
 

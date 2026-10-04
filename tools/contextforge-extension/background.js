@@ -36,34 +36,46 @@ async function pollAllLinks() {
 
 async function checkAndDispatch(cfConvId, link) {
   inFlight.add(cfConvId);
-  const res = await fetch(`${CF_BASE}/api/conversations/${cfConvId}/thread`);
-  if (!res.ok) {
-    console.warn('[CF Bridge] CF returned', res.status, 'for', cfConvId);
-    return;
-  }
-  const data = await res.json();
-  // Always dispatch pending user messages regardless of agent mode.
-  // Agent mode (auto_run) only controls tool execution and auto-continue on the CF side.
-  const { messages } = data;
-
-  let lastIdx = -1;
-  if (link.lastDispatchedMsgId) {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].id === link.lastDispatchedMsgId) { lastIdx = i; break; }
-    }
-  }
-
-  const pending = messages.slice(lastIdx + 1).filter(m => m.role === 'user');
-  if (pending.length === 0) { inFlight.delete(cfConvId); return; }
-
-  console.log(`[CF Bridge] ${pending.length} pending message(s) for ${cfConvId}`);
+  // Everything runs inside try/finally so inFlight ALWAYS clears. Previously an
+  // early return on a non-ok response, or a thrown fetch (e.g. the backend
+  // briefly unreachable), left cfConvId stuck in inFlight forever — every later
+  // poll then skipped this conversation until the whole background page was
+  // restarted. That is what forced the manual Firefox restarts.
   try {
-    for (const msg of pending) {
-      await dispatchMessage(cfConvId, link, msg);
-      await patchLink(cfConvId, { lastDispatchedMsgId: msg.id });
-      link.lastDispatchedMsgId = msg.id;
-      await sleep(500);
+    const res = await fetch(`${CF_BASE}/api/conversations/${cfConvId}/thread`);
+    if (!res.ok) {
+      console.warn('[CF Bridge] CF returned', res.status, 'for', cfConvId);
+      return;
     }
+    const data = await res.json();
+    // Always dispatch pending user messages regardless of agent mode.
+    // Agent mode (auto_run) only controls tool execution and auto-continue on the CF side.
+    const { messages } = data;
+
+    let lastIdx = -1;
+    if (link.lastDispatchedMsgId) {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].id === link.lastDispatchedMsgId) { lastIdx = i; break; }
+      }
+    }
+
+    const pending = messages.slice(lastIdx + 1).filter(m => m.role === 'user');
+    if (pending.length === 0) return;
+
+    // Only ever inject the single most-recent pending user message. If a backlog
+    // accumulated while the extension was offline (e.g. a backend outage),
+    // replaying every queued message would flood ChatGPT — and ChatGPT already
+    // holds the earlier turns in its own conversation. Fast-forward the pointer
+    // past the older ones without sending them.
+    const latest = pending[pending.length - 1];
+    if (pending.length > 1) {
+      console.log(`[CF Bridge] ${pending.length - 1} stale backlog message(s) skipped; sending only ${latest.id}`);
+    }
+
+    console.log(`[CF Bridge] dispatching ${latest.id} for ${cfConvId}`);
+    await dispatchMessage(cfConvId, link, latest);
+    await patchLink(cfConvId, { lastDispatchedMsgId: latest.id });
+    link.lastDispatchedMsgId = latest.id;
   } finally {
     inFlight.delete(cfConvId);
   }
@@ -92,21 +104,34 @@ async function dispatchMessage(cfConvId, link, msg) {
     return;
   }
 
-  // execCommand('insertText') needs document focus. Briefly make the tab
-  // active — since ensureChatGPTTab already handled any reload, the tab is
-  // fully loaded so there's no gray screen, just a ~200ms flash.
-  const [prev] = await browser.tabs.query({ active: true, currentWindow: true });
+  // execCommand('insertText') needs the document to hold real OS focus, and
+  // activating the tab alone isn't enough when the Firefox window is in the
+  // background (a synthetic paste doesn't work unfocused — verified against
+  // ChatGPT's ProseMirror). So focus the window + tab, inject, then restore the
+  // previous window/tab. Focus can't be returned to a non-Firefox app, so the
+  // browser stays foreground if you were in another app — unavoidable, since
+  // ProseMirror only accepts focused input.
+  const [prevTab] = await browser.tabs.query({ active: true, currentWindow: true });
+  let prevWindowId;
+  try { prevWindowId = (await browser.windows.getLastFocused()).id; } catch {}
+
+  await browser.windows.update(tab.windowId, { focused: true });
   await browser.tabs.update(tab.id, { active: true });
-  await sleep(200);
+  await sleep(250);
 
   const reply = await sendInject(tab.id, msg.content, cfConvId, msg.id);
   if (reply?.ok) {
-    console.log(`[CF Bridge] injected msg ${msg.id} (focused tab)`);
+    console.log(`[CF Bridge] injected msg ${msg.id} (focused window+tab)`);
   } else {
     console.warn(`[CF Bridge] injection failed:`, reply?.error ?? 'no response');
   }
 
-  if (prev && prev.id !== tab.id) browser.tabs.update(prev.id, { active: true });
+  if (prevTab && prevTab.id !== tab.id) {
+    browser.tabs.update(prevTab.id, { active: true }).catch(() => {});
+  }
+  if (prevWindowId && prevWindowId !== tab.windowId) {
+    browser.windows.update(prevWindowId, { focused: true }).catch(() => {});
+  }
   if (!reply?.ok) throw new Error(reply?.error ?? 'Injection failed');
 
   waitForChatGPTResponse(cfConvId, tab, msg.id);

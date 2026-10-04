@@ -8,15 +8,25 @@
 const CF_BASE = 'http://localhost:8000';
 const SETTLE_MS = 1200;
 const SEL_STREAMING = '.result-streaming, [data-is-streaming="true"]';
-const SEL_ASSISTANT = '[data-message-id][data-message-author-role="assistant"]';
-const SEL_INPUT = '#prompt-textarea, [contenteditable="true"][id*="prompt"]';
-// ChatGPT has changed this selector over time — try all known variants.
+// ChatGPT rebuilt its UI (2026). Assistant content is now a div.MarkdownRoot-*
+// carrying data-markdown-text-style="assistant-message"; the stable per-message
+// id lives on an ancestor as data-chatgpt-selection-message-id. The pre-2026 UI
+// used [data-message-id][data-message-author-role="assistant"]. Match both so a
+// future rollback or A/B bucket still syncs.
+const SEL_ASSISTANT = '[data-markdown-text-style="assistant-message"], [data-message-id][data-message-author-role="assistant"]';
+// The new composer is a bare div.ProseMirror[contenteditable] with no id; the
+// old UI used #prompt-textarea. Match both.
+const SEL_INPUT = '#prompt-textarea, .ProseMirror[contenteditable="true"], [contenteditable="true"][id*="prompt"]';
+// ChatGPT has changed this selector over time — try all known variants. In the
+// 2026 UI the send button is <button aria-label="Send" type="submit"> and only
+// exists once ProseMirror has content (it replaces the voice button).
 const SEND_SELECTORS = [
+  'button[aria-label="Send"]',
+  'form button[type="submit"]',
   '[data-testid="send-button"]',
   'button[aria-label="Send prompt"]',
   'button[aria-label*="Send"]',
   '#composer-background button[type="submit"]',
-  'form button[type="submit"]',
 ];
 
 // ── Config from extension storage ─────────────────────────────────────────
@@ -81,6 +91,7 @@ function firstNonEmpty(values) {
 function mathFallbackText(element) {
   const math = element.tagName.toLowerCase() === 'math' ? element : element.querySelector('math');
   return firstNonEmpty([
+    element.getAttribute('data-math-source'), // ChatGPT's canonical LaTeX source
     element.getAttribute('data-latex'),
     element.getAttribute('data-tex'),
     element.getAttribute('aria-label'),
@@ -96,13 +107,23 @@ function mathFallbackText(element) {
 function mathToMarkdown(element, display) {
   const tex = texAnnotation(element) || mathFallbackText(element);
   if (!tex) return '';
+  // A real LaTeX equation never contains a raw '$'. When the source has one,
+  // ChatGPT has wrapped a markdown fragment (e.g. a multi-line proof with
+  // inline $…$ and indented bullets) in a display span that KaTeX couldn't
+  // parse. Emit it verbatim as its own block — nesting it in $$…$$ would break.
+  if (tex.includes('$')) return `\n\n${tex}\n\n`;
   return display ? `\n\n$$\n${tex}\n$$\n\n` : `$${tex}$`;
 }
 
 function isDisplayMathElement(element) {
   const tag = element.tagName.toLowerCase();
+  // ChatGPT wraps display math in <span role="math" style="display: block">
+  // whose only math class (katex-display) sits on a child, so check both.
+  const isBlockStyled = /display:\s*block/.test(element.getAttribute('style') || '');
   return (
     element.classList?.contains('katex-display') ||
+    element.querySelector(':scope > .katex-display') !== null ||
+    (element.getAttribute('role') === 'math' && isBlockStyled) ||
     element.getAttribute('display') === 'block' ||
     element.querySelector(':scope > math[display="block"]') !== null ||
     (tag === 'math' && element.getAttribute('display') === 'block') ||
@@ -261,7 +282,36 @@ function contentToMarkdown(root) {
 
 function findContentRoot(messageRoot) {
   if (!messageRoot) return null;
-  return messageRoot.querySelector('.markdown') ?? messageRoot.querySelector('[data-message-id]') ?? messageRoot;
+  // New UI: the element we matched (via data-markdown-text-style) IS the
+  // markdown container, so process it directly.
+  if (messageRoot.matches?.('[data-markdown-text-style], [class*="MarkdownRoot"]')) return messageRoot;
+  return (
+    messageRoot.querySelector('[data-markdown-text-style="assistant-message"]') ??
+    messageRoot.querySelector('[class*="MarkdownRoot"]') ??
+    messageRoot.querySelector('.markdown') ??
+    messageRoot.querySelector('[data-message-id]') ??
+    messageRoot
+  );
+}
+
+// The on-screen assistant element carries no id itself in the 2026 UI; the stable
+// per-message id sits on an ancestor. Fall back to the old attribute for the
+// pre-2026 UI, where the id is on the element we matched.
+function messageIdOf(el) {
+  const holder = el.closest?.('[data-chatgpt-selection-message-id]');
+  return (
+    holder?.getAttribute('data-chatgpt-selection-message-id') ||
+    el.getAttribute('data-message-id') ||
+    null
+  );
+}
+
+function isStreaming(el) {
+  return !!(
+    el?.querySelector?.(SEL_STREAMING) ||
+    document.querySelector(SEL_STREAMING) ||
+    document.querySelector('button[aria-label*="Stop" i], button[data-testid="stop-button"]')
+  );
 }
 
 function extractMarkdown(el) {
@@ -288,13 +338,13 @@ function persistSynced(convId) {
 }
 
 function scheduleSync(el) {
-  const id = el.getAttribute('data-message-id');
+  const id = messageIdOf(el);
   if (!id || id.startsWith('request-placeholder-')) return;
 
   if (timers.has(id)) clearTimeout(timers.get(id));
   timers.set(id, setTimeout(async () => {
     timers.delete(id);
-    if (el.querySelector(SEL_STREAMING)) return;
+    if (isStreaming(el)) return;
     // Re-resolve in case cfConvId wasn't set when the message first arrived.
     if (!cfConvId) cfConvId = await resolveConvId();
     if (!cfConvId) {
@@ -306,8 +356,8 @@ function scheduleSync(el) {
 }
 
 function sendToContextForge(el) {
-  const id = el.getAttribute('data-message-id');
-  if (id?.startsWith('request-placeholder-')) return;
+  const id = messageIdOf(el);
+  if (!id || id.startsWith('request-placeholder-')) return;
   const content = extractMarkdown(el);
   if (!content) return;
   if (synced.get(id) === content.length) return;
@@ -358,26 +408,39 @@ function findSendButton() {
   return null;
 }
 
+function isSendReady(btn) {
+  // ChatGPT never sets the native `disabled` property — until ProseMirror has
+  // content the button is marked aria-disabled + data-visually-disabled. So
+  // `!btn.disabled` is always true and must NOT be used to gate the click.
+  return (
+    !!btn &&
+    !btn.disabled &&
+    btn.getAttribute('aria-disabled') !== 'true' &&
+    !btn.hasAttribute('data-visually-disabled')
+  );
+}
+
 async function waitForSendButton(timeoutMs = 4000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const btn = findSendButton();
-    if (btn && !btn.disabled) return btn;
-    await new Promise(r => setTimeout(r, 200));
+    if (isSendReady(btn)) return btn;
+    await new Promise(r => setTimeout(r, 150));
   }
-  // Log what buttons exist to help diagnose selector changes.
   const btns = [...document.querySelectorAll('button[aria-label]')].map(b => b.getAttribute('aria-label'));
-  console.warn('[CF Bridge] known send selectors failed. aria-label buttons:', btns);
-  throw new Error('ChatGPT send button not found');
+  console.warn('[CF Bridge] send button never enabled. aria-label buttons:', btns);
+  throw new Error('ChatGPT send button not found or never enabled');
 }
 
 async function injectMessage(text) {
   const input = document.querySelector(SEL_INPUT);
   if (!input) throw new Error('ChatGPT input not found');
 
-  // Tab is focused by background.js before this is called. Give the input
-  // focus so execCommand updates React/ProseMirror state (which makes the
-  // send button appear — it only renders when React thinks the input has text).
+  // execCommand('insertText') is the only insertion ProseMirror actually
+  // registers, and it requires the document to hold real OS focus. background.js
+  // focuses the window + tab before calling this; if focus wasn't granted the
+  // insert no-ops and we throw so background can retry after forcing focus.
+  // (A synthetic paste does NOT work unfocused — verified against ChatGPT.)
   input.focus();
   await new Promise(r => setTimeout(r, 100));
 
@@ -387,9 +450,11 @@ async function injectMessage(text) {
   await new Promise(r => setTimeout(r, 100));
 
   const injected = input.innerText?.trim();
-  if (!injected) throw new Error('Text injection failed — execCommand had no effect (focus not granted)');
+  if (!injected) throw new Error('Text injection failed — document not focused (execCommand no-op)');
 
-  const sendBtn = await waitForSendButton(3000);
+  // Click only once ChatGPT enables the button, i.e. ProseMirror registered the
+  // text. Enter-to-send is unreliable (untrusted event), so require the button.
+  const sendBtn = await waitForSendButton(4000);
   sendBtn.click();
 }
 

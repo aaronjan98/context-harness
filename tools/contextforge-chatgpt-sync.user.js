@@ -61,6 +61,7 @@
     const math =
       element.tagName.toLowerCase() === 'math' ? element : element.querySelector('math')
     return firstNonEmpty([
+      element.getAttribute('data-math-source'), // ChatGPT's canonical LaTeX source
       element.getAttribute('data-latex'),
       element.getAttribute('data-tex'),
       element.getAttribute('aria-label'),
@@ -76,13 +77,23 @@
   function mathToMarkdown(element, display) {
     const tex = texAnnotation(element) || mathFallbackText(element)
     if (!tex) return ''
+    // A real LaTeX equation never contains a raw '$'. When the source has one,
+    // ChatGPT has wrapped a markdown fragment (e.g. a multi-line proof with
+    // inline $…$ and indented bullets) in a display span that KaTeX couldn't
+    // parse. Emit it verbatim as its own block — nesting it in $$…$$ would break.
+    if (tex.includes('$')) return `\n\n${tex}\n\n`
     return display ? `\n\n$$\n${tex}\n$$\n\n` : `$${tex}$`
   }
 
   function isDisplayMathElement(element) {
     const tag = element.tagName.toLowerCase()
+    // ChatGPT wraps display math in <span role="math" style="display: block">
+    // whose only math class (katex-display) sits on a child, so check both.
+    const isBlockStyled = /display:\s*block/.test(element.getAttribute('style') || '')
     return (
       element.classList?.contains('katex-display') ||
+      element.querySelector(':scope > .katex-display') !== null ||
+      (element.getAttribute('role') === 'math' && isBlockStyled) ||
       element.getAttribute('display') === 'block' ||
       element.querySelector(':scope > math[display="block"]') !== null ||
       (tag === 'math' && element.getAttribute('display') === 'block') ||

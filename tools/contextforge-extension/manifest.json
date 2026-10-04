@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Context Forge Bridge",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "description": "Links Context Forge conversations to ChatGPT — sends your messages and syncs replies automatically.",
 
   "browser_specific_settings": {

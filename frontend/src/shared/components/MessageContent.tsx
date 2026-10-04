@@ -311,6 +311,26 @@ function parseToolCall(raw: string, key: string): ParsedToolCall {
   }
 }
 
+// Scan out the first balanced top-level {...} object, respecting JSON string
+// quoting so a brace inside a string value doesn't terminate it early.
+function firstBalancedJsonObject(s: string): { json: string; start: number; end: number } | null {
+  const start = s.indexOf('{')
+  if (start === -1) return null
+  let depth = 0
+  let inStr = false
+  let esc = false
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i]
+    if (esc) { esc = false; continue }
+    if (ch === '\\') { esc = true; continue }
+    if (ch === '"') { inStr = !inStr; continue }
+    if (inStr) continue
+    if (ch === '{') depth += 1
+    else if (ch === '}') { depth -= 1; if (depth === 0) return { json: s.slice(start, i + 1), start, end: i + 1 } }
+  }
+  return null
+}
+
 function splitToolCallBlocks(content: string) {
   // ChatGPT's DOM extractor sometimes puts the language on the first content line
   // instead of the opening fence (```\ncontextforge-tool\n…). Normalize to the
@@ -342,11 +362,122 @@ function splitToolCallBlocks(content: string) {
     index += 1
   }
 
+  // Fallback: the fence was lost in extraction — ChatGPT's 2026 UI renders the
+  // code block as an inline code span, so it arrives as the bare
+  // `contextforge-tool` label followed by the JSON in single backticks and no
+  // fenced match is found. Recover it as one tool call so the ToolCallCard (and
+  // its Run/Edit controls) still renders instead of a raw code blob.
+  if (index === 0) {
+    const labelIdx = normalized.indexOf('contextforge-tool')
+    if (labelIdx !== -1) {
+      const obj = firstBalancedJsonObject(normalized.slice(labelIdx))
+      if (obj) {
+        const before = normalized.slice(0, labelIdx).replace(/```?\s*$/, '').replace(/`+\s*$/, '')
+        const after = normalized.slice(labelIdx + obj.end).replace(/^\s*`+/, '')
+        if (before.trim()) parts.push({ type: 'markdown', content: before })
+        parts.push({ type: 'tool-call', toolCall: parseToolCall(obj.json, 'tool-0') })
+        if (after.trim()) parts.push({ type: 'markdown', content: after })
+        return parts
+      }
+    }
+  }
+
   if (cursor < normalized.length) {
     parts.push({ type: 'markdown', content: normalized.slice(cursor) })
   }
 
   return parts.length > 0 ? parts : [{ type: 'markdown' as const, content: normalized }]
+}
+
+const BULLET_LINE = /^(\s*)([-*+]|\d+[.)])(\s+)(.*)$/
+const FENCE_LINE = /^(\s*)(```+|~~~+)/
+
+function leadingIndentWidth(line: string): number {
+  let width = 0
+  for (const ch of line) {
+    if (ch === '\t') width += 4
+    else if (ch === ' ') width += 1
+    else break
+  }
+  return width
+}
+
+/**
+ * Render-time fix for Obsidian-style lists: a lead line with TAB/4-space
+ * sub-bullets directly beneath (no blank line) isn't valid CommonMark, so
+ * react-markdown folds the bullets into the paragraph and the indentation
+ * collapses. This rewrites such a run into a proper (nested) list —
+ * inserting a blank separator and mapping indent depth to 2-space nesting —
+ * without mutating the stored message. Fenced code blocks are left untouched,
+ * and already-valid lists (top-level or 0-indented nesting) are passed through.
+ */
+function normalizeIndentedLists(content: string): string {
+  const lines = content.split('\n')
+  const out: string[] = []
+  let inFence = false
+  let fenceChar = ''
+  let i = 0
+
+  while (i < lines.length) {
+    const line = lines[i]
+    const fence = FENCE_LINE.exec(line)
+    if (fence) {
+      const char = fence[2][0]
+      if (!inFence) {
+        inFence = true
+        fenceChar = char
+      } else if (char === fenceChar) {
+        inFence = false
+      }
+      out.push(line)
+      i += 1
+      continue
+    }
+    if (inFence) {
+      out.push(line)
+      i += 1
+      continue
+    }
+
+    if (BULLET_LINE.test(line)) {
+      const run: string[] = []
+      let j = i
+      while (j < lines.length && BULLET_LINE.test(lines[j]) && !FENCE_LINE.test(lines[j])) {
+        run.push(lines[j])
+        j += 1
+      }
+
+      const widths = run.map(leadingIndentWidth)
+      const minWidth = Math.min(...widths)
+      const prev = out.length > 0 ? out[out.length - 1] : ''
+      const gluedToParagraph = out.length > 0 && prev.trim() !== '' && !BULLET_LINE.test(prev)
+      const overIndented = minWidth >= 4
+
+      if (gluedToParagraph || overIndented) {
+        const uniqueWidths = [...new Set(widths)].sort((a, b) => a - b)
+        const depthByWidth = new Map(uniqueWidths.map((width, index) => [width, index]))
+        if (gluedToParagraph && prev.trim() !== '') out.push('')
+        run.forEach((bullet, index) => {
+          const match = BULLET_LINE.exec(bullet)
+          if (!match) return
+          const depth = depthByWidth.get(widths[index]) ?? 0
+          const marker = /^\d/.test(match[2]) ? match[2] : '-'
+          out.push(`${'  '.repeat(depth)}${marker} ${match[4]}`)
+        })
+        if (j < lines.length && lines[j].trim() !== '' && !BULLET_LINE.test(lines[j])) out.push('')
+      } else {
+        for (const bullet of run) out.push(bullet)
+      }
+
+      i = j
+      continue
+    }
+
+    out.push(line)
+    i += 1
+  }
+
+  return out.join('\n')
 }
 
 function renderMarkdownPart(content: string, keyPrefix: string) {
@@ -399,7 +530,7 @@ function renderMarkdownPart(content: string, keyPrefix: string) {
         rehypePlugins={[rehypeKatex]}
         components={markdownComponents}
       >
-        {part.content}
+        {normalizeIndentedLists(part.content)}
       </ReactMarkdown>
     )
   })
