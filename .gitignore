@@ -57,4 +57,5 @@ tags
 
 # Firefox extension build artifacts
 *.xpi
+web-ext-artifacts/
 tools/contextforge-extension/.amo-upload-uuid
