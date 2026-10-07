@@ -444,8 +444,19 @@ async function injectMessage(text) {
   input.focus();
   await new Promise(r => setTimeout(r, 100));
 
-  document.execCommand('selectAll', false, null);
-  document.execCommand('delete', false, null);
+  // Scope the selection to the composer's contents with an explicit Range.
+  // A bare document.execCommand('selectAll') acts on whatever node the document
+  // selection is anchored in — and when the ProseMirror editor doesn't truly
+  // hold focus (e.g. the Firefox window is backgrounded, common under a tiling
+  // WM), that anchor is the page body, so selectAll highlights the ENTIRE tab
+  // instead of the input and the following insertText no-ops. Selecting the
+  // input's node contents first keeps selection/replacement inside the editor.
+  const range = document.createRange();
+  range.selectNodeContents(input);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+
   document.execCommand('insertText', false, text);
   await new Promise(r => setTimeout(r, 100));
 
