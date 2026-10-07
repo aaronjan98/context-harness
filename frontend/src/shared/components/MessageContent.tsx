@@ -37,6 +37,7 @@ import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
 import type { ToolExecutionRequest } from '@/api/conversations'
+import { copyText } from '@/shared/clipboard'
 
 hljs.registerLanguage('bash', bash)
 hljs.registerLanguage('css', css)
@@ -147,7 +148,7 @@ function MarkdownCode({
 
   async function copyCode() {
     try {
-      await navigator.clipboard.writeText(rawCode)
+      await copyText(rawCode)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1400)
     } catch {
@@ -578,7 +579,7 @@ function ToolCallCard({
   async function copyCommand() {
     if (!activeToolCall) return
     try {
-      await navigator.clipboard.writeText(activeToolCall.command)
+      await copyText(activeToolCall.command)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1400)
     } catch {

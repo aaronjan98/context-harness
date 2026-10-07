@@ -36,6 +36,7 @@ import { Editor } from '@/features/editor'
 import type { EditorSelectionSnapshot, EditorVimMode } from '@/features/editor'
 import { GraphPanel } from '@/features/graph'
 import { MessageContent } from '@/shared/components/MessageContent'
+import { copyText } from '@/shared/clipboard'
 import { useUIStore } from '@/store/ui'
 import {
   ApiError,
@@ -492,7 +493,7 @@ const MessageRow = memo(function MessageRow({
               onClick={async (event) => {
                 event.stopPropagation()
                 try {
-                  await navigator.clipboard.writeText(msg.content)
+                  await copyText(msg.content)
                   onSetCopied(msg.id)
                   window.setTimeout(
                     () =>
@@ -577,7 +578,7 @@ const MessageRow = memo(function MessageRow({
               onClick={async (event) => {
                 event.stopPropagation()
                 try {
-                  await navigator.clipboard.writeText(chatbotCopyText)
+                  await copyText(chatbotCopyText)
                   onSetCopied(chatbotCopyId)
                   window.setTimeout(
                     () =>
@@ -1084,7 +1085,7 @@ function BootstrapPromptModal({ onClose }: BootstrapPromptModalProps) {
 
   async function copyPrompt() {
     try {
-      await navigator.clipboard.writeText(prompt)
+      await copyText(prompt)
       setStatus('Copied bootstrap prompt.')
       window.setTimeout(() => setStatus(null), 2400)
     } catch (error) {
@@ -1710,9 +1711,7 @@ export function ThreadView() {
     setExportStatus(null)
     try {
       const markdown = await fetchCurrentExportMarkdown(id)
-      await navigator.clipboard.writeText(
-        withToolProtocol(markdown, includeToolProtocol),
-      )
+      await copyText(withToolProtocol(markdown, includeToolProtocol))
       setExportStatus(
         includeToolProtocol
           ? 'Copied Markdown export with tool protocol.'
@@ -1755,7 +1754,7 @@ export function ThreadView() {
     const selected = selectedMessages()
     if (selected.length === 0) return
     try {
-      await navigator.clipboard.writeText(
+      await copyText(
         withToolProtocol(messagesToMarkdown(selected), includeToolProtocol),
       )
       setExportStatus(
