@@ -323,52 +323,66 @@ async def stream_terminal_command(
         asyncio.create_task(drain(process.stderr, "stderr", stderr_buf)),
     ]
 
-    timed_out = False
-    done = 0
-    deadline = asyncio.get_event_loop().time() + timeout_seconds
-    while done < 2:
-        remaining = deadline - asyncio.get_event_loop().time()
-        if remaining <= 0:
-            timed_out = True
-            break
-        try:
-            tag, chunk = await asyncio.wait_for(queue.get(), timeout=min(remaining, 5.0))
-        except asyncio.TimeoutError:
-            continue
-        if tag.startswith("_done_"):
-            done += 1
-        else:
-            yield {"type": tag, "chunk": chunk}
+    try:
+        timed_out = False
+        done = 0
+        deadline = asyncio.get_event_loop().time() + timeout_seconds
+        while done < 2:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                timed_out = True
+                break
+            try:
+                tag, chunk = await asyncio.wait_for(queue.get(), timeout=min(remaining, 5.0))
+            except asyncio.TimeoutError:
+                continue
+            if tag.startswith("_done_"):
+                done += 1
+            else:
+                yield {"type": tag, "chunk": chunk}
 
-    if timed_out:
+        if timed_out:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            for task in tasks:
+                task.cancel()
+            stderr_buf.append(f"\nCommand timed out after {timeout_seconds}s.\n")
+            yield {"type": "stderr", "chunk": f"\nCommand timed out after {timeout_seconds}s.\n"}
+        else:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        # After kill, SSH subprocesses may keep the local client alive waiting for the
+        # remote to close. Cap the wait so the stream always terminates promptly.
         try:
-            process.kill()
-        except ProcessLookupError:
-            pass
+            exit_code = await asyncio.wait_for(process.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            exit_code = -1
+
+        yield {
+            "type": "exit",
+            "code": exit_code,
+            "stdout": "".join(stdout_buf),
+            "stderr": "".join(stderr_buf),
+        }
+    finally:
+        # If the consumer closes this generator early — the client aborted the
+        # fetch because the user clicked Stop, or simply disconnected — the
+        # subprocess is otherwise left running orphaned. Cancel the drain tasks
+        # and kill the process if it hasn't already exited. (On the normal path
+        # the process has exited, so kill is a no-op.)
         for task in tasks:
             task.cancel()
-        stderr_buf.append(f"\nCommand timed out after {timeout_seconds}s.\n")
-        yield {"type": "stderr", "chunk": f"\nCommand timed out after {timeout_seconds}s.\n"}
-    else:
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-    # After kill, SSH subprocesses may keep the local client alive waiting for the
-    # remote to close. Cap the wait so the stream always terminates promptly.
-    try:
-        exit_code = await asyncio.wait_for(process.wait(), timeout=5.0)
-    except asyncio.TimeoutError:
-        try:
-            process.kill()
-        except ProcessLookupError:
-            pass
-        exit_code = -1
-
-    yield {
-        "type": "exit",
-        "code": exit_code,
-        "stdout": "".join(stdout_buf),
-        "stderr": "".join(stderr_buf),
-    }
+        if process.returncode is None:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
 
 
 STDOUT_INLINE_LIMIT = 10_000

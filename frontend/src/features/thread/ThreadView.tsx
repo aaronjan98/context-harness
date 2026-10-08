@@ -405,6 +405,7 @@ interface MessageRowProps {
   onInsertAfter: (msg: Message) => void
   onDelete: (msg: Message) => void
   onRunToolCall: (messageId: string, toolCall: ToolExecutionRequest, key: string) => void
+  onStopToolCall: () => void
   onPreviewAttachment: (attachment: Attachment) => void
 }
 
@@ -427,6 +428,7 @@ const MessageRow = memo(function MessageRow({
   onInsertAfter,
   onDelete,
   onRunToolCall,
+  onStopToolCall,
   onPreviewAttachment,
 }: MessageRowProps) {
   const chatbotCopyText = useMemo(() => {
@@ -565,6 +567,7 @@ const MessageRow = memo(function MessageRow({
         <MessageContent
           content={msg.content}
           onRunToolCall={handleRunToolCall}
+          onStopToolCall={onStopToolCall}
           runningToolCallKey={runningToolCallKey}
           toolStreamLog={toolStreamLog}
           messageId={msg.id}
@@ -1196,6 +1199,10 @@ export function ThreadView() {
   const [openActionsMessageId, setOpenActionsMessageId] = useState<string | null>(null)
   const [runningToolCallKey, setRunningToolCallKey] = useState<string | null>(null)
   const [toolStreamLog, setToolStreamLog] = useState('')
+  // Lets the user abort an in-flight tool-call stream (the Stop button). Aborting
+  // the fetch closes the SSE stream, which the backend treats as a disconnect and
+  // kills the subprocess.
+  const toolAbortRef = useRef<AbortController | null>(null)
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [autoRunEnabled, setAutoRunEnabled] = useState(false)
   const [pendingApprovalMessageId, setPendingApprovalMessageId] = useState<string | null>(null)
@@ -1620,9 +1627,12 @@ export function ThreadView() {
       setPendingApprovalMessageId(null)
       noCommandStreakRef.current = 0
 
+      const controller = new AbortController()
+      toolAbortRef.current = controller
+
       try {
         let exitEvent: { stdout: string; stderr: string; code: number } | null = null
-        for await (const event of streamToolExecution(id, messageId, toolCall)) {
+        for await (const event of streamToolExecution(id, messageId, toolCall, controller.signal)) {
           if (event.type === 'stdout' || event.type === 'stderr') {
             setToolStreamLog((prev) => prev + event.chunk)
           } else if (event.type === 'exit') {
@@ -1662,6 +1672,14 @@ export function ThreadView() {
           }
         }
       } catch (err) {
+        // The user clicked Stop (or navigated away): aborting the fetch raises
+        // an AbortError. That's a deliberate cancellation, not a failure — don't
+        // surface it as an error or forward it to ChatGPT.
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          setExportStatus('Command stopped.')
+          window.setTimeout(() => setExportStatus(null), 3000)
+          return
+        }
         const errMsg = err instanceof Error ? err.message : 'Failed to execute tool call.'
         setExportStatus(errMsg)
         if (autoRunEnabledRef.current) {
@@ -1677,11 +1695,16 @@ export function ThreadView() {
             .catch(() => {})
         }
       } finally {
+        if (toolAbortRef.current === controller) toolAbortRef.current = null
         setRunningToolCallKey(null)
       }
     },
     [id, queryClient],
   )
+
+  const handleStopToolCall = useCallback(() => {
+    toolAbortRef.current?.abort()
+  }, [])
 
   const handlePreviewAttachment = useCallback((attachment: Attachment) => {
     setPreviewAttachment(attachment)
@@ -2049,6 +2072,7 @@ export function ThreadView() {
                       onInsertAfter={startInsertAfter}
                       onDelete={handleDeleteMessage}
                       onRunToolCall={handleRunToolCall}
+                      onStopToolCall={handleStopToolCall}
                       onPreviewAttachment={handlePreviewAttachment}
                     />
                   </div>

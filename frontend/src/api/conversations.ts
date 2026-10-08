@@ -191,6 +191,7 @@ export async function* streamToolExecution(
   conversationId: string,
   messageId: string,
   body: ToolExecutionRequest,
+  signal?: AbortSignal,
 ): AsyncGenerator<ToolStreamEvent> {
   const response = await fetch(
     resolveApiUrl(
@@ -200,6 +201,7 @@ export async function* streamToolExecution(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     },
   )
 

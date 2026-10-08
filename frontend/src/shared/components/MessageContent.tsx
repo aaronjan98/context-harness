@@ -56,6 +56,7 @@ hljs.registerLanguage('yaml', yaml)
 interface MessageContentProps {
   content: string
   onRunToolCall?: (toolCall: ToolExecutionRequest, toolCallKey: string) => void
+  onStopToolCall?: () => void
   runningToolCallKey?: string | null
   toolStreamLog?: string
   pendingApprovalMessageId?: string | null
@@ -540,12 +541,14 @@ function renderMarkdownPart(content: string, keyPrefix: string) {
 function ToolCallCard({
   parsed,
   onRun,
+  onStop,
   isRunning,
   streamLog,
   isPendingApproval,
 }: {
   parsed: ParsedToolCall
   onRun?: (toolCall: ToolExecutionRequest, toolCallKey: string) => void
+  onStop?: () => void
   isRunning: boolean
   streamLog?: string
   isPendingApproval?: boolean
@@ -711,26 +714,40 @@ function ToolCallCard({
               autoComplete="current-password"
             />
           )}
-          <button
-            type="button"
-            className="cf-primary-button"
-            onClick={(event) => {
-              event.stopPropagation()
-              if (!activeToolCall) return
-              const needsSudo = /\bsudo\b/.test(activeToolCall.command)
-              if (needsSudo && !sudoPassword) return
-              onRun?.(
-                needsSudo ? { ...activeToolCall, sudo_password: sudoPassword } : activeToolCall,
-                parsed.key,
-              )
-            }}
-            disabled={
-              !activeToolCall || !onRun || isRunning ||
-              (/\bsudo\b/.test(activeToolCall?.command ?? '') && !sudoPassword)
-            }
-          >
-            {isRunning ? 'Running...' : 'Run'}
-          </button>
+          {isRunning ? (
+            <button
+              type="button"
+              className="cf-primary-button cf-stop-button"
+              onClick={(event) => {
+                event.stopPropagation()
+                onStop?.()
+              }}
+              disabled={!onStop}
+            >
+              Stop
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="cf-primary-button"
+              onClick={(event) => {
+                event.stopPropagation()
+                if (!activeToolCall) return
+                const needsSudo = /\bsudo\b/.test(activeToolCall.command)
+                if (needsSudo && !sudoPassword) return
+                onRun?.(
+                  needsSudo ? { ...activeToolCall, sudo_password: sudoPassword } : activeToolCall,
+                  parsed.key,
+                )
+              }}
+              disabled={
+                !activeToolCall || !onRun ||
+                (/\bsudo\b/.test(activeToolCall?.command ?? '') && !sudoPassword)
+              }
+            >
+              Run
+            </button>
+          )}
         </div>
       </div>
       {isEditing && !activeToolCall ? (
@@ -841,6 +858,7 @@ function commandQuoteWarning(command: string): string | null {
 export function MessageContent({
   content,
   onRunToolCall,
+  onStopToolCall,
   runningToolCallKey,
   toolStreamLog,
   pendingApprovalMessageId,
@@ -861,6 +879,7 @@ export function MessageContent({
               key={`${part.toolCall.key}-${index}`}
               parsed={part.toolCall}
               onRun={onRunToolCall}
+              onStop={onStopToolCall}
               isRunning={isRunning}
               streamLog={isRunning ? toolStreamLog : undefined}
               isPendingApproval={isPendingApproval}

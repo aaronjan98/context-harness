@@ -612,6 +612,14 @@ textarea {
   opacity: 0.5;
 }
 
+/* Stop button: clickable while a command is running (replaces the old disabled
+   "Running..." button that blocked the cursor). */
+.cf-stop-button {
+  background: var(--cf-danger, #d64545);
+  border-color: var(--cf-danger, #d64545);
+  color: #fff;
+}
+
 .cf-import-textarea {
   width: 100%;
   min-height: 180px;
