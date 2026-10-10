@@ -354,12 +354,16 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
                 cid, mid = payload.conversation_id, payload.message_id
 
                 async def _await_approval() -> None:
+                    # Long window so the approval still works when clicked from the
+                    # notification center minutes after the toast auto-hides, not
+                    # only during the brief on-screen toast. The quickshell rice
+                    # keeps the notification alive on the bus for this full timeout.
                     key = await send_actionable_notification(
                         title="CF: approval needed",
                         body=body,
                         action_key="approve",
                         action_label="Approve",
-                        timeout_ms=30000,
+                        timeout_ms=300000,
                     )
                     if key == "approve":
                         approved_commands.add((cid, mid))
