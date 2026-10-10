@@ -22,7 +22,7 @@ class ToolExecutionError(ValueError):
 
 class CommandTier(str, Enum):
     SAFE = "safe"       # auto-run without approval
-    CONFIRM = "confirm" # requires approval; Pushbullet notification sent if configured
+    CONFIRM = "confirm" # requires approval; desktop notification sent
     BLOCKED = "blocked" # never run
 
 
@@ -39,7 +39,7 @@ class TerminalExecutionResult:
 
 
 # Commands that modify filesystem, packages, processes, or git history.
-# These require explicit user approval (Pushbullet notification sent).
+# These require explicit user approval (desktop notification sent).
 _M = re.MULTILINE  # shorthand — all (^|...) patterns need this so ^ matches inside heredocs
 
 CONFIRM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -135,8 +135,7 @@ def classify_command(command: str) -> tuple[CommandTier, str]:
 
     Tier order: BLOCKED > CONFIRM > SAFE.
     Blocked commands are never run.
-    Confirm commands require user approval; a Pushbullet notification is sent
-    when a token is configured.
+    Confirm commands require user approval; a desktop notification is sent.
     Safe commands are auto-run without interaction.
     """
     for pattern, message in DANGEROUS_COMMAND_PATTERNS:
@@ -175,22 +174,88 @@ def classify_command(command: str) -> tuple[CommandTier, str]:
     return CommandTier.SAFE, "read-only command"
 
 
-async def send_pushbullet_notification(
-    token: str,
+async def send_desktop_notification(
     title: str,
     body: str,
+    urgency: str = "normal",
+    timeout_ms: int | None = None,
 ) -> None:
-    """POST a note push to Pushbullet. Silently ignores errors."""
+    """Pop a desktop notification via notify-send.
+
+    Routed over the session D-Bus to the running notification daemon
+    (quickshell on this laptop). Fire-and-forget: silently ignores errors
+    so a missing binary or no session bus never breaks a tool run.
+
+    urgency stays "normal" so the toast auto-expires — quickshell only skips
+    its expire timer for "critical". timeout_ms, when set, is the expire
+    timeout in milliseconds (notify-send -t), otherwise the daemon default.
+    """
+    args = [
+        "notify-send",
+        "--app-name=Context Forge",
+        f"--urgency={urgency}",
+    ]
+    if timeout_ms is not None:
+        args.append(f"--expire-time={timeout_ms}")
+    args += [title, body]
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            await client.post(
-                "https://api.pushbullet.com/v2/pushes",
-                headers={"Access-Token": token},
-                json={"type": "note", "title": title, "body": body},
-            )
+        process = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await process.wait()
     except Exception:
         pass
+
+
+async def send_actionable_notification(
+    title: str,
+    body: str,
+    *,
+    action_key: str,
+    action_label: str,
+    timeout_ms: int,
+) -> str | None:
+    """Pop a notification carrying one action button and wait for the user.
+
+    Returns the invoked action key (e.g. "approve") when the user clicks the
+    button, or None if the toast expired or was dismissed. notify-send's
+    --action implies --wait, so it blocks until the toast closes and then
+    prints the clicked action to stdout.
+
+    quickshell hides an expired toast without sending a close over the bus, so
+    --wait would otherwise hang past the visible window; the wait_for cap (just
+    past the expiry) kills the process instead of leaking it.
+    """
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "notify-send",
+            "--app-name=Context Forge",
+            "--urgency=normal",
+            f"--expire-time={timeout_ms}",
+            f"--action={action_key}={action_label}",
+            title,
+            body,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except Exception:
+        return None
+
+    try:
+        stdout, _ = await asyncio.wait_for(
+            process.communicate(), timeout=timeout_ms / 1000 + 2
+        )
+    except Exception:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        return None
+
+    key = stdout.decode(errors="replace").strip()
+    return key or None
 
 
 def validate_terminal_exec(*, cwd: str, command: str, reason: str) -> None:

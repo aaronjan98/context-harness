@@ -79,14 +79,16 @@ Implemented:
   - auto-captures the conversation URL after the first message creates it
   - permanent install via NixOS Firefox enterprise policy + AMO-signed `.xpi`
 - **Auto-run tool execution** — tiered command classifier (SAFE / CONFIRM /
-  BLOCKED) with Pushbullet notifications for commands needing approval:
+  BLOCKED) with desktop notifications for commands needing approval:
   - SSH and `docker exec` are transport layers; the remote command determines
     the safety tier
   - `>/dev/null`, `2>/dev/null`, `/tmp/` writes, `command -v` checks are safe
   - parse failures auto-retry with a heredoc suggestion
   - no-command streak detector: auto-continues up to 2 times then notifies via
-    Pushbullet and waits for the user
-- Settings UI: theme, auto-run toggle, Pushbullet token management
+    a desktop notification and waits for the user
+  - notifications go out through `notify-send` over the session D-Bus, shown by
+    the laptop's notification daemon (quickshell)
+- Settings UI: theme, auto-run toggle
 
 Current focus:
 

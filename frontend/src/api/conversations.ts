@@ -320,7 +320,6 @@ export async function fetchCurrentExportMarkdown(
 
 export interface CFSettings {
   auto_run: boolean
-  pushbullet_configured: boolean
 }
 
 export async function fetchSettings(): Promise<CFSettings> {
@@ -331,7 +330,7 @@ export async function fetchSettings(): Promise<CFSettings> {
 }
 
 export async function patchSettings(
-  patch: { auto_run?: boolean; pushbullet_token?: string },
+  patch: { auto_run?: boolean },
 ): Promise<CFSettings> {
   const response = await fetch(resolveApiUrl('/api/settings'), {
     method: 'PATCH',
@@ -372,15 +371,34 @@ export interface ClassifyResult {
 
 export async function classifyToolCall(
   toolCall: ToolExecutionRequest,
+  conversationId?: string,
+  messageId?: string,
 ): Promise<ClassifyResult> {
+  // conversation_id + message_id let the backend put an "Approve" button on the
+  // notification that marks this command approved for the polling tab to run.
+  const body =
+    conversationId && messageId
+      ? { ...toolCall, conversation_id: conversationId, message_id: messageId }
+      : toolCall
   const response = await fetch(resolveApiUrl('/api/tool-executions/classify'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(toolCall),
+    body: JSON.stringify(body),
   })
   const payload = await response.json().catch(() => null)
   if (!response.ok) throw toApiError(payload, response)
   return payload as ClassifyResult
+}
+
+// Message IDs approved from a notification's "Approve" button for this
+// conversation. Drains on read — call it on a poll and run each ID once.
+export async function fetchApprovals(conversationId: string): Promise<string[]> {
+  const response = await fetch(
+    resolveApiUrl(`/api/conversations/${encodeURIComponent(conversationId)}/approvals`),
+  )
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) throw toApiError(payload, response)
+  return (payload as { approved?: string[] })?.approved ?? []
 }
 
 export async function sendNotification(title: string, body: string): Promise<void> {

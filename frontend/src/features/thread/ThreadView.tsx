@@ -45,6 +45,7 @@ import {
   fetchConversation,
   patchConversationAutoRun,
   classifyToolCall,
+  fetchApprovals,
   appendMessage,
   fetchCurrentExportMarkdown,
   importMarkdown,
@@ -1213,8 +1214,12 @@ export function ThreadView() {
   // is permanent and never cleared).
   const pendingAutoRunRef = useRef<Set<string>>(new Set())
   // Counts consecutive assistant messages with no tool call while auto-run is on.
-  // Resets when a tool call executes. At the limit, notifies via Pushbullet instead of continuing.
+  // Resets when a tool call executes. At the limit, pops a desktop notification instead of continuing.
   const noCommandStreakRef = useRef(0)
+  // Message IDs this tab has already run from a notification's "Approve" button.
+  // handleRunToolCall adds the ID before executing, so the approvals poller never
+  // re-fires a command the Run button (or an earlier poll) already executed.
+  const approvalFiredRef = useRef<Set<string>>(new Set())
 
   const focusedMessageId = useUIStore((s) => s.focusedMessageId)
   const clearDraft = useUIStore((s) => s.clearDraft)
@@ -1260,6 +1265,11 @@ export function ThreadView() {
       return false
     },
   })
+
+  // Latest messages for the approvals poller, which reads them from a setInterval
+  // closure and must not restart the interval on every refetch.
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
 
   const lastMessageIsUser = messages != null && messages.length > 0 && messages[messages.length - 1].role === 'user'
 
@@ -1449,7 +1459,7 @@ export function ThreadView() {
     }
 
     // Handle assistant messages with no tool call (status updates, waiting messages).
-    // Auto-continue up to 2 times; on the 3rd, send a Pushbullet notification instead.
+    // Auto-continue up to 2 times; on the 3rd, send a desktop notification instead.
     if (
       lastMsg.role === 'assistant' &&
       !lastMsg.content.includes('contextforge-tool') &&
@@ -1534,7 +1544,7 @@ export function ThreadView() {
 
       void (async () => {
         try {
-          const result = await classifyToolCall(toolCall)
+          const result = await classifyToolCall(toolCall, id, msg.id)
           if (result.tier === 'safe') {
             // Mark fired before executing — tool runs are not retried on failure
             autoRunFiredRef.current.add(msg.id)
@@ -1622,6 +1632,9 @@ export function ThreadView() {
     ) => {
       setIsExportOpen(false)
       setExportStatus(null)
+      // Mark executed so the approvals poller won't re-run this command if its
+      // notification's Approve is clicked after the Run button already ran it.
+      approvalFiredRef.current.add(messageId)
       setRunningToolCallKey(`${messageId}:${toolCallKey}`)
       setToolStreamLog('')
       setPendingApprovalMessageId(null)
@@ -1705,6 +1718,33 @@ export function ThreadView() {
   const handleStopToolCall = useCallback(() => {
     toolAbortRef.current?.abort()
   }, [])
+
+  // Approvals poller: while agent mode is on, check whether the user clicked
+  // "Approve" on a command's notification. An approved message runs through the
+  // same handleRunToolCall the Run button uses, so both triggers behave
+  // identically (live output, ChatGPT forwarding). approvalFiredRef keeps it to a
+  // single execution per message. Only runs in agent mode, since that is the only
+  // path that classifies commands and sends approval notifications.
+  useEffect(() => {
+    if (!autoRunEnabled) return
+    const interval = window.setInterval(async () => {
+      let approved: string[]
+      try {
+        approved = await fetchApprovals(id)
+      } catch {
+        return
+      }
+      for (const mid of approved) {
+        if (approvalFiredRef.current.has(mid)) continue
+        const msg = messagesRef.current?.find((m) => m.id === mid)
+        if (!msg) continue
+        const toolCall = extractFirstToolCall(msg.content)
+        if (!toolCall) continue
+        void handleRunToolCall(mid, toolCall, 'tool-0')
+      }
+    }, 2000)
+    return () => window.clearInterval(interval)
+  }, [autoRunEnabled, id, handleRunToolCall])
 
   const handlePreviewAttachment = useCallback((attachment: Attachment) => {
     setPreviewAttachment(attachment)

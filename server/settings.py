@@ -12,7 +12,6 @@ SETTINGS_PATH = Path.home() / ".config" / "context-forge" / "settings.json"
 @dataclass
 class CFSettings:
     auto_run: bool = False
-    pushbullet_token: str | None = None
 
 
 def load_settings() -> CFSettings:
@@ -22,7 +21,6 @@ def load_settings() -> CFSettings:
         data = json.loads(SETTINGS_PATH.read_text())
         return CFSettings(
             auto_run=bool(data.get("auto_run", False)),
-            pushbullet_token=data.get("pushbullet_token") or None,
         )
     except Exception:
         return CFSettings()

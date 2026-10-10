@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSettingsStore } from '@/store/settings'
@@ -30,39 +29,6 @@ export function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
     },
   })
-
-  // Pushbullet token local state — cleared after save
-  const [tokenDraft, setTokenDraft] = useState('')
-  const [showToken, setShowToken] = useState(false)
-  const [tokenStatus, setTokenStatus] = useState<string | null>(null)
-
-  function saveToken() {
-    const token = tokenDraft.trim()
-    if (!token) return
-    saveServerSettings(
-      { pushbullet_token: token },
-      {
-        onSuccess: () => {
-          setTokenDraft('')
-          setShowToken(false)
-          setTokenStatus('Token saved.')
-          window.setTimeout(() => setTokenStatus(null), 3000)
-        },
-      },
-    )
-  }
-
-  function clearToken() {
-    saveServerSettings(
-      { pushbullet_token: '' },
-      {
-        onSuccess: () => {
-          setTokenStatus('Token removed.')
-          window.setTimeout(() => setTokenStatus(null), 3000)
-        },
-      },
-    )
-  }
 
   return (
     <div className="cf-settings-page">
@@ -117,81 +83,16 @@ export function SettingsPage() {
             />
             <span>
               Automatically execute safe (read-only) commands without clicking Run.
-              Modifying commands still require approval and send a Pushbullet
+              Modifying commands still require approval and send a desktop
               notification.
             </span>
           </label>
         </label>
 
-        <div className="cf-settings-field">
-          <span>Pushbullet token</span>
-          <div className="cf-settings-token-area">
-            {serverSettings?.pushbullet_configured && !tokenDraft && (
-              <div className="cf-settings-token-status">
-                <span className="cf-settings-token-configured">✓ Token configured</span>
-                <button
-                  type="button"
-                  className="cf-settings-token-action"
-                  onClick={() => setShowToken(true)}
-                >
-                  Replace
-                </button>
-                <button
-                  type="button"
-                  className="cf-settings-token-action cf-settings-token-danger"
-                  onClick={clearToken}
-                  disabled={isSaving}
-                >
-                  Remove
-                </button>
-              </div>
-            )}
-            {(!serverSettings?.pushbullet_configured || tokenDraft || showToken) && (
-              <div className="cf-settings-token-input-row">
-                <input
-                  type={showToken ? 'text' : 'password'}
-                  value={tokenDraft}
-                  onChange={(event) => setTokenDraft(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === 'Enter') saveToken() }}
-                  placeholder="o.xxxxxxxxxxxxxxxxxxxxxxxx"
-                  className="cf-settings-token-input"
-                  autoComplete="off"
-                />
-                <button
-                  type="button"
-                  className="cf-settings-token-action"
-                  onClick={() => setShowToken((v) => !v)}
-                >
-                  {showToken ? 'Hide' : 'Show'}
-                </button>
-                <button
-                  type="button"
-                  className="cf-primary-button"
-                  onClick={saveToken}
-                  disabled={!tokenDraft.trim() || isSaving}
-                >
-                  {isSaving ? 'Saving…' : 'Save'}
-                </button>
-                {serverSettings?.pushbullet_configured && (
-                  <button
-                    type="button"
-                    className="cf-secondary-button"
-                    onClick={() => { setTokenDraft(''); setShowToken(false) }}
-                  >
-                    Cancel
-                  </button>
-                )}
-              </div>
-            )}
-            {tokenStatus && (
-              <div className="cf-settings-token-feedback">{tokenStatus}</div>
-            )}
-          </div>
-          <p className="cf-settings-note">
-            Sent to your phone when a command requires approval. Get your token
-            at pushbullet.com → Settings → Account → Create Access Token.
-          </p>
-        </div>
+        <p className="cf-settings-note">
+          Approval prompts and timeouts pop a desktop notification via
+          notify-send, shown by the laptop's notification daemon (quickshell).
+        </p>
       </section>
 
       {/* ── Editor ─────────────────────────────────────────────────────────── */}

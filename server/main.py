@@ -1,5 +1,6 @@
 """FastAPI application entrypoint for Context Forge."""
 
+import asyncio
 import json as json_mod
 
 from pydantic import BaseModel, Field
@@ -20,7 +21,8 @@ from server.tool_execution import (
     classify_command,
     execute_terminal_command,
     format_terminal_result_markdown,
-    send_pushbullet_notification,
+    send_actionable_notification,
+    send_desktop_notification,
     stream_terminal_command,
     validate_terminal_exec,
 )
@@ -294,16 +296,14 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
 
     @app.get("/api/settings")
     async def get_settings() -> dict[str, object]:
-        """Return current CF settings (token omitted from response)."""
+        """Return current CF settings."""
         s = load_settings()
         return {
             "auto_run": s.auto_run,
-            "pushbullet_configured": bool(s.pushbullet_token),
         }
 
     class PatchSettingsRequest(BaseModel):
         auto_run: bool | None = None
-        pushbullet_token: str | None = None
 
     @app.patch("/api/settings")
     async def patch_settings(payload: PatchSettingsRequest) -> dict[str, object]:
@@ -311,44 +311,69 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
         s = load_settings()
         if payload.auto_run is not None:
             s.auto_run = payload.auto_run
-        if payload.pushbullet_token is not None:
-            s.pushbullet_token = payload.pushbullet_token or None
         save_settings(s)
-        return {"auto_run": s.auto_run, "pushbullet_configured": bool(s.pushbullet_token)}
+        return {"auto_run": s.auto_run}
 
     # ── Tool call classification ───────────────────────────────────────────────
+
+    # Commands the user approved from a notification's "Approve" button, keyed by
+    # (conversation_id, message_id). The open CF tab polls GET …/approvals and runs
+    # them through its normal streaming path, so the notification and the Run button
+    # are two triggers for the same single execution. In-memory: this is a local,
+    # single-user app and a pending approval has no meaning across restarts.
+    approved_commands: set[tuple[str, str]] = set()
+    # Hold strong refs to in-flight approval-wait tasks so they are not GC'd mid-wait.
+    approval_tasks: set[asyncio.Task] = set()
 
     class ClassifyToolCallRequest(BaseModel):
         tool: str = Field(pattern=r"^terminal\.exec$")
         cwd: str = Field(min_length=1)
         command: str = Field(min_length=1)
         reason: str = Field(min_length=1)
+        # Present when the caller wants the notification to carry an Approve button
+        # that marks this exact command approved for the polling tab to run.
+        conversation_id: str | None = None
+        message_id: str | None = None
 
     @app.post("/api/tool-executions/classify")
     async def classify_tool_call(payload: ClassifyToolCallRequest) -> dict[str, object]:
-        """Classify a proposed command and send a Pushbullet notification if needed.
+        """Classify a proposed command and send a desktop notification if needed.
 
         Returns tier (safe/confirm/blocked), a human-readable reason, and
-        notification_sent (true when a Pushbullet push was sent).
+        notification_sent (true when a desktop notification was sent). For CONFIRM
+        commands the notification carries an "Approve" button when conversation_id
+        and message_id are supplied.
         """
         tier, tier_reason = classify_command(payload.command)
         notification_sent = False
 
         if tier == CommandTier.CONFIRM:
-            s = load_settings()
-            if s.pushbullet_token:
-                body = (
-                    f"Command: {payload.command}\n"
-                    f"Working dir: {payload.cwd}\n"
-                    f"Reason: {payload.reason}\n\n"
-                    "Open Context Forge to approve and run."
-                )
-                await send_pushbullet_notification(
-                    s.pushbullet_token,
-                    title="CF: Command requires approval",
+            body = payload.reason
+
+            if payload.conversation_id and payload.message_id:
+                cid, mid = payload.conversation_id, payload.message_id
+
+                async def _await_approval() -> None:
+                    key = await send_actionable_notification(
+                        title="CF: approval needed",
+                        body=body,
+                        action_key="approve",
+                        action_label="Approve",
+                        timeout_ms=30000,
+                    )
+                    if key == "approve":
+                        approved_commands.add((cid, mid))
+
+                task = asyncio.create_task(_await_approval())
+                approval_tasks.add(task)
+                task.add_done_callback(approval_tasks.discard)
+            else:
+                await send_desktop_notification(
+                    title="CF: approval needed",
                     body=body,
+                    timeout_ms=15000,
                 )
-                notification_sent = True
+            notification_sent = True
 
         return {
             "tier": tier.value,
@@ -356,14 +381,22 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
             "notification_sent": notification_sent,
         }
 
+    @app.get("/api/conversations/{conversation_id}/approvals")
+    async def get_approvals(conversation_id: str) -> dict[str, object]:
+        """Return (and drain) message IDs approved from a notification for this convo.
+
+        Drain-on-read: the polling tab acts on each ID once, then its own run guard
+        keeps the Run button and a stale Approve click from executing it twice.
+        """
+        approved = [mid for (cid, mid) in approved_commands if cid == conversation_id]
+        for mid in approved:
+            approved_commands.discard((conversation_id, mid))
+        return {"approved": approved}
+
     @app.post("/api/notify")
     async def push_notification(payload: dict[str, str]) -> dict[str, object]:
-        """Send an arbitrary Pushbullet notification if a token is configured."""
-        s = load_settings()
-        if not s.pushbullet_token:
-            return {"sent": False, "reason": "no token configured"}
-        await send_pushbullet_notification(
-            s.pushbullet_token,
+        """Send an arbitrary desktop notification."""
+        await send_desktop_notification(
             title=payload.get("title", "Context Forge"),
             body=payload.get("body", ""),
         )
@@ -667,18 +700,15 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
         )
 
         if "timed out" in result.stderr:
-            s = load_settings()
-            if s.pushbullet_token:
-                truncated = result.command[:200] + ("…" if len(result.command) > 200 else "")
-                await send_pushbullet_notification(
-                    s.pushbullet_token,
-                    title="CF: Command timed out",
-                    body=(
-                        f"Timed out after {payload.timeout_seconds}s.\n"
-                        f"Command: {truncated}\n\n"
-                        "Retry with a higher timeout_seconds (up to 3600), or run it manually."
-                    ),
-                )
+            truncated = result.command[:200] + ("…" if len(result.command) > 200 else "")
+            await send_desktop_notification(
+                title="CF: Command timed out",
+                body=(
+                    f"Timed out after {payload.timeout_seconds}s.\n"
+                    f"Command: {truncated}\n\n"
+                    "Retry with a higher timeout_seconds (up to 3600), or run it manually."
+                ),
+            )
 
         thread_data = await get_active_thread(conversation_id)
         return {
@@ -741,18 +771,15 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
                             message_format="markdown",
                         )
                         if "timed out" in result.stderr:
-                            s = load_settings()
-                            if s.pushbullet_token:
-                                truncated = payload.command[:200] + ("…" if len(payload.command) > 200 else "")
-                                await send_pushbullet_notification(
-                                    s.pushbullet_token,
-                                    title="CF: Command timed out",
-                                    body=(
-                                        f"Timed out after {payload.timeout_seconds}s.\n"
-                                        f"Command: {truncated}\n\n"
-                                        "Retry with a higher timeout_seconds (up to 3600), or run it manually."
-                                    ),
-                                )
+                            truncated = payload.command[:200] + ("…" if len(payload.command) > 200 else "")
+                            await send_desktop_notification(
+                                title="CF: Command timed out",
+                                body=(
+                                    f"Timed out after {payload.timeout_seconds}s.\n"
+                                    f"Command: {truncated}\n\n"
+                                    "Retry with a higher timeout_seconds (up to 3600), or run it manually."
+                                ),
+                            )
                         yield f"data: {json_mod.dumps({'type': 'done'})}\n\n"
             except Exception as exc:
                 yield f"data: {json_mod.dumps({'type': 'error', 'message': str(exc)})}\n\n"
