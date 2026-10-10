@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from enum import Enum
+import os
 from pathlib import Path
 import re
 import shlex
@@ -209,6 +210,14 @@ async def send_desktop_notification(
         pass
 
 
+# Quickshell config to target over `qs ipc`. The running instance was launched
+# with `-p <this>/shell.qml`; --path is a stable selector (instance ids change
+# per launch). Overridable for other setups.
+QUICKSHELL_CONFIG_PATH = os.path.expanduser(
+    os.environ.get("CF_QUICKSHELL_CONFIG", "~/.config/quickshell/rices/current")
+)
+
+
 async def send_actionable_notification(
     title: str,
     body: str,
@@ -216,6 +225,7 @@ async def send_actionable_notification(
     action_key: str,
     action_label: str,
     timeout_ms: int,
+    on_id: "Callable[[int], None] | None" = None,
 ) -> str | None:
     """Pop a notification carrying one action button and wait for the user.
 
@@ -223,6 +233,10 @@ async def send_actionable_notification(
     button, or None if the toast expired or was dismissed. notify-send's
     --action implies --wait, so it blocks until the toast closes and then
     prints the clicked action to stdout.
+
+    --print-id makes notify-send print the server-assigned notification id on the
+    first line immediately (before the wait); on_id, if given, receives it so the
+    caller can later address that notification (e.g. mark it approved from the UI).
 
     quickshell hides an expired toast without sending a close over the bus, so
     --wait would otherwise hang past the visible window; the wait_for cap (just
@@ -233,6 +247,7 @@ async def send_actionable_notification(
             "notify-send",
             "--app-name=Context Forge",
             "--urgency=normal",
+            "--print-id",
             f"--expire-time={timeout_ms}",
             f"--action={action_key}={action_label}",
             title,
@@ -243,9 +258,24 @@ async def send_actionable_notification(
     except Exception:
         return None
 
+    assert process.stdout is not None
+
+    # First line is the notification id, emitted before --wait blocks.
     try:
-        stdout, _ = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_ms / 1000 + 2
+        first = await asyncio.wait_for(process.stdout.readline(), timeout=5)
+        line = first.decode(errors="replace").strip()
+        if line and on_id is not None:
+            try:
+                on_id(int(line))
+            except ValueError:
+                pass
+    except Exception:
+        pass
+
+    # Then wait (bounded) for the action line, printed when the button is clicked.
+    try:
+        rest = await asyncio.wait_for(
+            process.stdout.read(), timeout=timeout_ms / 1000 + 2
         )
     except Exception:
         try:
@@ -254,8 +284,37 @@ async def send_actionable_notification(
             pass
         return None
 
-    key = stdout.decode(errors="replace").strip()
-    return key or None
+    for ln in rest.decode(errors="replace").splitlines():
+        if ln.strip() == action_key:
+            return action_key
+    return None
+
+
+async def mark_notification_action_done(nid: int, action_key: str = "approve") -> None:
+    """Flip a notification's action button to its invoked ("approved") state in the
+    quickshell daemon without the user clicking — used when the command was already
+    handled from the Context Forge UI. Best-effort; silently ignores errors.
+    """
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "qs",
+            "ipc",
+            "-p",
+            QUICKSHELL_CONFIG_PATH,
+            "call",
+            "notifs",
+            "markInvoked",
+            str(nid),
+            action_key,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await asyncio.wait_for(process.wait(), timeout=5)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
 
 
 def validate_terminal_exec(*, cwd: str, command: str, reason: str) -> None:

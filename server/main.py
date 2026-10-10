@@ -21,6 +21,7 @@ from server.tool_execution import (
     classify_command,
     execute_terminal_command,
     format_terminal_result_markdown,
+    mark_notification_action_done,
     send_actionable_notification,
     send_desktop_notification,
     stream_terminal_command,
@@ -324,6 +325,17 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
     approved_commands: set[tuple[str, str]] = set()
     # Hold strong refs to in-flight approval-wait tasks so they are not GC'd mid-wait.
     approval_tasks: set[asyncio.Task] = set()
+    # (conversation_id, message_id) -> quickshell notification id, for the approval
+    # notification still on screen. Lets a run from the CF UI flip that notification
+    # to its "approved" state so the toast/center button reflects it.
+    pending_notifications: dict[tuple[str, str], int] = {}
+
+    async def mark_pending_notification_done(conversation_id: str, message_id: str) -> None:
+        """If an approval notification is still showing for this command, flip its
+        button to approved — used when the command is run from the CF UI instead."""
+        nid = pending_notifications.pop((conversation_id, message_id), None)
+        if nid is not None:
+            await mark_notification_action_done(nid, "approve")
 
     class ClassifyToolCallRequest(BaseModel):
         tool: str = Field(pattern=r"^terminal\.exec$")
@@ -358,15 +370,19 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
                     # notification center minutes after the toast auto-hides, not
                     # only during the brief on-screen toast. The quickshell rice
                     # keeps the notification alive on the bus for this full timeout.
-                    key = await send_actionable_notification(
-                        title="CF: approval needed",
-                        body=body,
-                        action_key="approve",
-                        action_label="Approve",
-                        timeout_ms=300000,
-                    )
-                    if key == "approve":
-                        approved_commands.add((cid, mid))
+                    try:
+                        key = await send_actionable_notification(
+                            title="CF: approval needed",
+                            body=body,
+                            action_key="approve",
+                            action_label="Approve",
+                            timeout_ms=300000,
+                            on_id=lambda nid: pending_notifications.__setitem__((cid, mid), nid),
+                        )
+                        if key == "approve":
+                            approved_commands.add((cid, mid))
+                    finally:
+                        pending_notifications.pop((cid, mid), None)
 
                 task = asyncio.create_task(_await_approval())
                 approval_tasks.add(task)
@@ -680,6 +696,9 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
         if not any(message.id == message_id for message in thread):
             raise message_not_found(message_id)
 
+        # Running it here handles the approval; flip any still-showing notification.
+        await mark_pending_notification_done(conversation_id, message_id)
+
         try:
             result = execute_terminal_command(
                 cwd=payload.cwd,
@@ -743,6 +762,9 @@ def create_app(conversation_store: ConversationStore | None = None) -> FastAPI:
             validate_terminal_exec(cwd=payload.cwd, command=payload.command, reason=payload.reason)
         except ToolExecutionError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+
+        # Running it here handles the approval; flip any still-showing notification.
+        await mark_pending_notification_done(conversation_id, message_id)
 
         async def generate():
             try:
