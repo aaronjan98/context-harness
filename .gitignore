@@ -57,5 +57,11 @@ tags
 
 # Firefox extension build artifacts
 *.xpi
+# ...except the stable-named AMO-signed xpi. The NixOS force-install policy
+# (nixos-config/hosts/common/default.nix) references it by path, so it must
+# exist on disk on every machine; tracking it means a plain `git pull`
+# provisions a new laptop instead of a fresh AMO re-sign. Same reason the
+# voice-assistant repo tracks orchestrator-bridge.xpi.
+!contextforge-bridge-signed.xpi
 web-ext-artifacts/
 tools/contextforge-extension/.amo-upload-uuid
